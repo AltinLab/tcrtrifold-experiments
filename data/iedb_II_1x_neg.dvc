@@ -1,0 +1,6 @@
+outs:
+- md5: de5bb3f1648b04a0a1a317ba012dfece.dir
+  size: 1062162
+  nfiles: 4
+  hash: md5
+  path: iedb_II_1x_neg

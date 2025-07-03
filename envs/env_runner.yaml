@@ -1,0 +1,33 @@
+name: tcrtrifold-experiments
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - pip
+  - python
+  - ipykernel
+  # to enable pip install of anarci
+  - hmmer=3.3.2
+  # for pandas interop
+  - pyarrow
+  - pandas
+
+  - matplotlib
+  - umap-learn
+
+  - anarci
+  - editdistance
+
+  # https://github.com/statsmodels/statsmodels/issues/9584
+  - scipy<1.16.0
+
+  - dvc
+  - black
+  
+  - py3Dmol
+  - requests
+
+  - pip:
+    - git+https://github.com/ljwoods2/mdaf3.git@main
+    - tcrdist3
+    - -e /home/runner/work/tcrtrifold-experiments/tcrtrifold-experiments
