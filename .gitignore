@@ -111,12 +111,15 @@ ENV/
 # poetry
 poetry.lock
 
-
 # AF3 inference
 **/inference
 **/.nextflow
 **/*.log*
-# notebooks
-**/*.ipynb
+
 # scratch
-tmp/
+tmp
+
+# data
+data/*
+!data/test
+!data/*.dvc
