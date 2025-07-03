@@ -27,7 +27,6 @@ jobs:
       - name: Install conda dependencies for main env
         uses: conda-incubator/setup-miniconda@v3
         with:
-            mamba-version: "*"
             activate-environment: ""
             auto-activate-base: true
             show-channel-urls: true
