@@ -1,10 +1,9 @@
-params.dset_name = null
-params.input_pattern = null
+
+
 
 
 process JOIN_TRIAD_FEATURES {
-    label "process_local"
-    conda "envs/env.yaml"
+    label "tcrtrifold_local"
 
     publishDir "${params.data_dir}/${params.dset_name}/triad/staged", mode: 'copy'
 
@@ -31,13 +30,12 @@ process JOIN_TRIAD_FEATURES {
         triad_features = pl.read_parquet(feat_fname)
         out_triad = out_triad.join(triad_features, on="job_name")
 
-    out_triad.write_parquet("${base_triad_file.getBaseName(2)}.feat.parquet")
+    out_triad.write_parquet("${base_triad_file.getBaseName()}.feat.parquet")
     """
 }
 
 process JOIN_PMHC_FEATURES {
-    label "process_local"
-    conda "envs/env.yaml"
+    label "tcrtrifold_local"
 
     publishDir "${params.data_dir}/${params.dset_name}/pmhc/staged", mode: 'copy'
 
@@ -64,37 +62,31 @@ process JOIN_PMHC_FEATURES {
         pmhc_feat = pl.read_parquet(feat_fname)
         out_pmhc = out_pmhc.join(pmhc_feat, on="job_name")
 
-    out_pmhc.write_parquet("${base_pmhc_file.getBaseName(2)}.feat.parquet")
+    out_pmhc.write_parquet("${base_pmhc_file.getBaseName()}.feat.parquet")
     """
 }
 
 workflow {
-    base_triad_file = "${data_dir}/${dset_name}/triad/features/${input_pattern}"
 
-    base_triad_channel = Channel.fromPath(base_triad_file)
-
-    if base_triad_channel.count() != 1 {
-        error "Expected exactly one file matching pattern '${base_triad_file}', but found ${base_triad_channel.count()} files."
+    base_triad_channel = Channel.fromPath("${params.data_dir}/${params.dset_name}/triad/features/${params.input_pattern}").collect().map {
+        list -> list[0]
     }
 
-    triad_feature_glob = Channel.fromPath("${data_dir}/${dset_name}/triad/features/${input_pattern}")
+    triad_feature_glob = Channel.fromPath("${params.data_dir}/${params.dset_name}/triad/features/${params.input_pattern}").collect()
 
     JOIN_TRIAD_FEATURES(
-        base_triad_file,
+        base_triad_channel,
         triad_feature_glob
     )
 
-    base_pmhc_file = "${data_dir}/${dset_name}/pmhc/features/${input_pattern}"
-    base_pmhc_channel = Channel.fromPath(base_pmhc_file)
-
-    if base_pmhc_channel.count() != 1 {
-        error "Expected exactly one file matching pattern '${base_pmhc_file}', but found ${base_pmhc_channel.count()} files."
+    base_pmhc_channel = Channel.fromPath("${params.data_dir}/${params.dset_name}/pmhc/features/${params.input_pattern}").collect().map {
+        list -> list[0]
     }
 
-    pmhc_feature_glob = Channel.fromPath("${data_dir}/${dset_name}/pmhc/features/${input_pattern}").collect()
+    pmhc_feature_glob = Channel.fromPath("${params.data_dir}/${params.dset_name}/pmhc/features/${params.input_pattern}").collect()
 
-    JOIN_PMHC_FEATURES {
-        base_pmhc_file,
+    JOIN_PMHC_FEATURES(
+        base_pmhc_channel,
         pmhc_feature_glob
-    }
+    )
 }

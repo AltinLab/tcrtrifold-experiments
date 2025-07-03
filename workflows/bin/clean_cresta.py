@@ -1,12 +1,11 @@
 #!/usr/bin/env python
-from tcrtrifold.utils import generate_job_name
-
-from tcr_format_parsers.common.TriadUtils import (
+from tcrtrifold.utils import (
+    generate_job_name,
     FORMAT_COLS,
     FORMAT_ANTIGEN_COLS,
     TCRDIST_COLS,
 )
-from tcr_format_parsers.common.TCRUtils import (
+from tcrtrifold.tcr import (
     extract_tcrdist_cols,
 )
 from mdaf3.FeatureExtraction import serial_apply

@@ -1,4 +1,4 @@
-from tcr_format_parsers.common.TriadUtils import FORMAT_ANTIGEN_COLS
+from .utils import FORMAT_ANTIGEN_COLS
 import polars as pl
 
 

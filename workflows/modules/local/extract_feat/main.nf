@@ -23,8 +23,10 @@ process MEAN_TCR_PMHC_PAE {
   df = split_apply_combine(
     df,
     extract_mean_tcr_pmhc_pae,
-    Path("${params.outdir}/triad/inference")
+    Path("${params.outdir}/triad/inference"),
+    chunksize=15,
   )
+  df = df.select("job_name", "mean_p_tcr_pae")
   df.write_parquet("${triad_pq.getBaseName()}.mean_tcr_pmhc_pae.parquet")
   """
 }

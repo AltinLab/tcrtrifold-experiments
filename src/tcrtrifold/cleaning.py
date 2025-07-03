@@ -1,11 +1,11 @@
-from tcr_format_parsers.common.MHCCodeConverter import (
+from .mhc import (
     shorten_to_fullname,
     is_fullname,
     DQA_FOR,
     DPA_FOR,
 )
 import warnings
-from tcr_format_parsers.common.TriadUtils import (
+from .utils import (
     SOURCE_RENAME_DICT,
     SOURCE_ANTIGEN_COLS,
     TCRDIST_COLS,
@@ -48,9 +48,7 @@ def infer_hla_chain(mhc_1_name, mhc_2_name):
 
             b_chain = fullname
             a_chain = (
-                shorten_to_fullname(mhc_1_name)
-                if mhc_1_name is not None
-                else None
+                shorten_to_fullname(mhc_1_name) if mhc_1_name is not None else None
             )
             if mhc_1_name is None or not is_fullname(a_chain):
                 if b_chain in DQA_FOR:
@@ -77,9 +75,7 @@ def infer_hla_chain(mhc_1_name, mhc_2_name):
         if is_fullname(fullname):
             b_chain = fullname
             a_chain = (
-                shorten_to_fullname(mhc_1_name)
-                if mhc_1_name is not None
-                else None
+                shorten_to_fullname(mhc_1_name) if mhc_1_name is not None else None
             )
             if mhc_1_name is None or not is_fullname(a_chain):
 
@@ -103,8 +99,3 @@ def infer_hla_chain(mhc_1_name, mhc_2_name):
             return nullchains
     else:
         return nullchains
-
-
-
-
-

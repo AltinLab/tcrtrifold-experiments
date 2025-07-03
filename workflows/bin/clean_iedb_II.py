@@ -1,18 +1,18 @@
 #!/usr/bin/env python
 from tcrtrifold.utils import generate_job_name
 from tcrtrifold.cleaning import infer_hla_chain
-from tcr_format_parsers.common.MHCCodeConverter import (
+from tcrtrifold.mhc import (
     B2M_HUMAN_SEQ,
     HLACodeWebConverter,
 )
-from tcr_format_parsers.common.TriadUtils import (
+from tcrtrifold.utils import (
+    generate_job_name,
     FORMAT_COLS,
     FORMAT_TCR_COLS,
     FORMAT_ANTIGEN_COLS,
     TCRDIST_COLS,
-    generate_negatives_antigen_matched,
 )
-from tcr_format_parsers.common.TCRUtils import (
+from tcrtrifold.tcr import (
     extract_tcrdist_cols,
 )
 from mdaf3.FeatureExtraction import serial_apply
@@ -51,9 +51,7 @@ if __name__ == "__main__":
         "receptor_id": pl.String,
     }
 
-    iedb_human_II = pl.read_csv(
-        args.raw_csv_path, schema_overrides=schema_overrides
-    )
+    iedb_human_II = pl.read_csv(args.raw_csv_path, schema_overrides=schema_overrides)
 
     iedb_human_II = (
         iedb_human_II.rename(
@@ -85,9 +83,7 @@ if __name__ == "__main__":
         .with_columns(
             pl.when(pl.col("references").is_not_null())
             .then(
-                pl.col("references").list.eval(
-                    pl.element().str.split("/").list.get(-1)
-                )
+                pl.col("references").list.eval(pl.element().str.split("/").list.get(-1))
             )
             .otherwise(None)
             .alias("references")
@@ -114,10 +110,7 @@ if __name__ == "__main__":
             .otherwise(
                 pl.struct(
                     pl.lit(None).alias("mhc_1_name"),
-                    pl.col("split_parts")
-                    .list.get(0)
-                    .str.slice(4)
-                    .alias("mhc_2_name"),
+                    pl.col("split_parts").list.get(0).str.slice(4).alias("mhc_2_name"),
                 )
             )
             .alias("mhc_struct")
@@ -127,14 +120,19 @@ if __name__ == "__main__":
             pl.col("mhc_struct")
             .map_elements(
                 lambda x: infer_hla_chain(x["mhc_1_name"], x["mhc_2_name"]),
-                return_dtype=pl.Struct,
+                return_dtype=pl.Struct(
+                    {
+                        "mhc_1_name": pl.String,
+                        "mhc_2_name": pl.String,
+                        "mhc_name_inferred": pl.String,
+                    }
+                ),
             )
             .alias("chains")
         )
         .unnest("chains")
         .filter(
-            (pl.col("mhc_1_name").is_not_null())
-            & (pl.col("mhc_2_name").is_not_null())
+            (pl.col("mhc_1_name").is_not_null()) & (pl.col("mhc_2_name").is_not_null())
         )
         .with_columns(
             pl.col("mhc_1_name")
@@ -182,8 +180,6 @@ if __name__ == "__main__":
         ["peptide", "mhc_1_seq", "mhc_2_seq"],
     )
 
-    iedb_human_II_antigen.select(
-        ["job_name"] + FORMAT_ANTIGEN_COLS
-    ).write_parquet(
+    iedb_human_II_antigen.select(["job_name"] + FORMAT_ANTIGEN_COLS).write_parquet(
         args.output_pmhc_path,
     )

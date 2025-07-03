@@ -1,4 +1,4 @@
-from tcr_format_parsers.common.TriadUtils import FORMAT_ANTIGEN_COLS
+from .utils import FORMAT_ANTIGEN_COLS
 
 
 import numpy as np
@@ -127,5 +127,54 @@ def within_antigen_auc(
         row["roc_auc"] = roc_auc
 
         out_df.append(row)
+
+    return pl.DataFrame(out_df)
+
+
+def antigen_cross_validation_auc(
+    triad_df,
+    antigen_df,
+    featnames,
+    model_class,
+    model_kwargs,
+    balanced_ratio=False,
+):
+
+    out_df = []
+
+    for row in antigen_df.iter_rows(named=True):
+        antigen = pl.DataFrame([row]).select(pl.exclude("job_name"))
+        focal_antigen_triads = triad_df.join(antigen, on=FORMAT_ANTIGEN_COLS)
+        non_focal_antigen_triads = triad_df.join(
+            antigen, on=FORMAT_ANTIGEN_COLS, how="anti"
+        )
+
+        test, train = focal_antigen_triads, non_focal_antigen_triads
+
+        if balanced_ratio:
+            train = pl.concat(
+                [
+                    train.filter(pl.col("cognate")),
+                    train.filter(~pl.col("cognate"))
+                    .sample(fraction=1, shuffle=True)
+                    .head(train.filter(pl.col("cognate")).height),
+                ]
+            )
+
+        model = train_model(train, featnames, model_class, **model_kwargs)
+
+        fpr, tpr, threshold, roc_auc = test_model(
+            model,
+            featnames,
+            test,
+        )
+
+        new_row = row.copy()
+
+        new_row["fpr"] = fpr.tolist()
+        new_row["tpr"] = tpr.tolist()
+        new_row["roc_auc"] = roc_auc
+
+        out_df.append(new_row)
 
     return pl.DataFrame(out_df)

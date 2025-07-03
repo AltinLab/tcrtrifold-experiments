@@ -8,8 +8,11 @@ import vastdb
 import fcntl
 from contextlib import contextmanager
 
+import time
+
 VAST_S3_ACCESS_KEY_ID = os.getenv("VAST_S3_ACCESS_KEY_ID")
 VAST_S3_SECRET_ACCESS_KEY = os.getenv("VAST_S3_SECRET_ACCESS_KEY")
+MAX_RETRY_ATTEMPT = 10
 
 
 def read_fasta_seqs(path):
@@ -71,9 +74,7 @@ def get_msa(session, protein_type, seq):
         else:
             raise ValueError
 
-        result = table.select(
-            columns=["msa_path"], predicate=predicate
-        ).read_all()
+        result = table.select(columns=["msa_path"], predicate=predicate).read_all()
 
         if result.shape[0] != 1:
             raise ValueError(
@@ -93,9 +94,7 @@ def main():
     parser = argparse.ArgumentParser(
         description="Compose Alphafold3 input JSON by querying VAST for chain MSA information."
     )
-    parser.add_argument(
-        "-jn", "--job_name", type=str, required=True, help="Job name"
-    )
+    parser.add_argument("-jn", "--job_name", type=str, required=True, help="Job name")
     parser.add_argument(
         "-f",
         "--fasta_path",
@@ -113,7 +112,7 @@ def main():
         "--protein_type",
         type=str,
         required=True,
-        help="Protein types",
+        help="Comma separated list of protein types",
     )
     parser.add_argument(
         "-s",
@@ -135,12 +134,22 @@ def main():
 
     database = "https://pub-vscratch.vast.rc.tgen.org"
 
-    session = vastdb.connect(
-        endpoint=database,
-        access=VAST_S3_ACCESS_KEY_ID,
-        secret=VAST_S3_SECRET_ACCESS_KEY,
-        ssl_verify=False,
-    )
+    delay = 1
+
+    for attempt in range(1, MAX_RETRY_ATTEMPT + 1):
+        try:
+            session = vastdb.connect(
+                endpoint=database,
+                access=VAST_S3_ACCESS_KEY_ID,
+                secret=VAST_S3_SECRET_ACCESS_KEY,
+                ssl_verify=False,
+            )
+            break
+        except Exception as e:
+            if attempt == MAX_RETRY_ATTEMPT:
+                raise
+            time.sleep(delay)
+            delay = delay * 2
     msas = []
 
     seqs = read_fasta_seqs(args.fasta_path)

@@ -1,19 +1,18 @@
-"""
+/*
 Hardcoded pipelines for cleaning raw data files from each dataset, getting them into a uniform format.
-"""
+*/
 
 process CLEAN_CRESTA {
-  label "process_local"
-  conda "envs/env.yaml"
+  label "tcrtrifold_local"
 
   publishDir(
     path: {"${params.data_dir}/cresta/triad/staged"},
-    pattern: "cresta.triad*",
+    pattern: "*triad*",
     mode: 'copy'
   )
   publishDir(
     path: {"${params.data_dir}/cresta/pmhc/staged"},
-    pattern: "cresta.pmhc*",
+    pattern: "*pmhc*",
     mode: 'copy'
   )
 
@@ -22,14 +21,15 @@ process CLEAN_CRESTA {
   path cresta
 
   output:
-  path("*.parquet")
+  path("*triad*.parquet")
+  path("*pmhc*.parquet")
 
   script:
   """
   clean_cresta.py \\
     --raw_csv_path ${cresta} \\
-    -ot cresta.triad.cleaned.parquet \\
-    -op cresta.pmhc.cleaned.parquet 
+    -ot cresta_triad.cleaned.parquet \\
+    -op cresta_pmhc.cleaned.parquet 
   """
 }
 

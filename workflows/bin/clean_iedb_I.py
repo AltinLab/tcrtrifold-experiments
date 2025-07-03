@@ -1,17 +1,17 @@
 #!/usr/bin/env python
 from tcrtrifold.utils import generate_job_name
-from tcr_format_parsers.common.MHCCodeConverter import (
+from tcrtrifold.mhc import (
     B2M_HUMAN_SEQ,
     HLACodeWebConverter,
 )
-from tcr_format_parsers.common.TriadUtils import (
+from tcrtrifold.utils import (
+    generate_job_name,
     FORMAT_COLS,
     FORMAT_TCR_COLS,
     FORMAT_ANTIGEN_COLS,
     TCRDIST_COLS,
-    generate_negatives_antigen_matched,
 )
-from tcr_format_parsers.common.TCRUtils import (
+from tcrtrifold.tcr import (
     extract_tcrdist_cols,
 )
 from mdaf3.FeatureExtraction import serial_apply
@@ -42,9 +42,7 @@ if __name__ == "__main__":
         "references": pl.String,
         "receptor_id": pl.String,
     }
-    iedb_human_I = pl.read_csv(
-        args.raw_csv_path, schema_overrides=schema_overrides
-    )
+    iedb_human_I = pl.read_csv(args.raw_csv_path, schema_overrides=schema_overrides)
 
     human_conv = HLACodeWebConverter()
 
@@ -74,9 +72,7 @@ if __name__ == "__main__":
             pl.lit(B2M_HUMAN_SEQ).alias("mhc_2_seq"),
             pl.lit("B2M").alias("mhc_2_name"),
             pl.lit("I").alias("mhc_class"),
-            pl.col("mhc_1_name")
-            .str.split_exact("HLA-", 1)
-            .alias("split_parts"),
+            pl.col("mhc_1_name").str.split_exact("HLA-", 1).alias("split_parts"),
             pl.lit(True).alias("cognate"),
             pl.col("receptor_id").str.split(",").alias("receptor_id"),
             pl.col("references").str.split(",").alias("references"),
@@ -105,9 +101,7 @@ if __name__ == "__main__":
         .with_columns(
             pl.when(pl.col("references").is_not_null())
             .then(
-                pl.col("references").list.eval(
-                    pl.element().str.split("/").list.get(-1)
-                )
+                pl.col("references").list.eval(pl.element().str.split("/").list.get(-1))
             )
             .otherwise(None)
             .alias("references")
@@ -144,8 +138,6 @@ if __name__ == "__main__":
         ["peptide", "mhc_1_seq", "mhc_2_seq"],
     )
 
-    iedb_human_I_antigen.select(
-        ["job_name"] + FORMAT_ANTIGEN_COLS
-    ).write_parquet(
+    iedb_human_I_antigen.select(["job_name"] + FORMAT_ANTIGEN_COLS).write_parquet(
         args.output_pmhc_path,
     )

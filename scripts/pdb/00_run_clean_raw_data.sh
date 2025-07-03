@@ -8,12 +8,9 @@
 #SBATCH --time=1:00:00
 #SBATCH --output=tmp/nextflow/pdb/clean_raw_data.%j.log
 
-. ./scripts/setup.sh
-
 # env vars
 export NXF_LOG_FILE=tmp/nextflow/pdb/clean_raw_data/nextflow.log
 export NXF_CACHE_DIR=tmp/nextflow/pdb/clean_raw_data/cache
 
-nextflow run \
-    ./workflows/00_clean_raw_data_pdb.nf \
-        -resume
+conda run -n nf-core --live-stream nextflow run \
+    ./workflows/00_clean_raw_data.pdb.nf
