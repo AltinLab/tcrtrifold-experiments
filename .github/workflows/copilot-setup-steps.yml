@@ -31,9 +31,10 @@ jobs:
             auto-activate-base: true
             show-channel-urls: true
             auto-update-conda: true
+            conda-remove-defaults: true
 
       - name: Create all conda envs
         shell: bash -l {0}
         run: |
-          mamba env create -f envs/env_runner.yaml
-          mamba env create -f envs/nf-core.yaml
+          conda env create -f envs/env_runner.yaml
+          conda env create -f envs/nf-core.yaml
