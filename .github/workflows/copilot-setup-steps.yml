@@ -1,0 +1,40 @@
+name: "Copilot Setup Steps"
+
+# Automatically run the setup steps when they are changed to allow for easy validation, and
+# allow manual testing through the repository's "Actions" tab
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+  pull_request:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+
+jobs:
+
+  copilot-setup-steps:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # More info on options: https://github.com/conda-incubator/setup-miniconda
+      - name: Install conda dependencies for main env
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+            activate-environment: ""
+            auto-activate-base: true
+            show-channel-urls: true
+            auto-update-conda: true
+            conda-remove-defaults: true
+
+      - name: Create all conda envs
+        shell: bash -l {0}
+        run: |
+          conda env create -f envs/env_runner.yaml
+          conda env create -f envs/nf-core.yaml

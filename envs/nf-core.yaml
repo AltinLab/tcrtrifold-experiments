@@ -1,0 +1,10 @@
+name: nf-core
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - pip
+  - python
+
+  - nf-core
+  - nextflow

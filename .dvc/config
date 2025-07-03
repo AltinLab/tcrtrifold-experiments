@@ -1,0 +1,4 @@
+[core]
+    remote = origin
+['remote "origin"']
+    url = /tgen_labs/altin/dvc/tcrtrifold-experiments/

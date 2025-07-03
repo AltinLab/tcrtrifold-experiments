@@ -1,0 +1,13 @@
+name: tcrdock
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - pip
+  - python
+
+  - blast
+
+  - pip:
+    - git+https://github.com/ljwoods2/mdaf3.git@main
+    - git+https://github.com/ljwoods2/TCRdock.git@packaging
