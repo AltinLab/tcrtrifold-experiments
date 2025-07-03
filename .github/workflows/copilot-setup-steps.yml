@@ -23,12 +23,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
-
       # More info on options: https://github.com/conda-incubator/setup-miniconda
       - name: Install conda dependencies for main env
         uses: conda-incubator/setup-miniconda@v3
