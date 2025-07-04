@@ -113,6 +113,8 @@ poetry.lock
 
 # AF3 inference
 **/inference
+!data/test/**/inference
+
 **/.nextflow
 **/*.log*
 
