@@ -2,8 +2,6 @@ import anarci
 import numpy as np
 
 
-
-
 def extract_tcrdist_cols(row):
 
     for tcr in [1, 2]:

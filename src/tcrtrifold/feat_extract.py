@@ -1,4 +1,3 @@
-
 from mdaf3.AF3OutputParser import AF3Output
 from mdaf3.FeatureExtraction import *
 from tcr_format_parsers.common.TCRUtils import (
@@ -17,6 +16,7 @@ import polars as pl
 from scipy.stats import gmean
 import scipy
 from itertools import repeat
+from pathlib import Path
 
 
 TCRDOCK_COLS = [
@@ -77,21 +77,13 @@ def extract_mean_tcr_pmhc_pae(row, af3_parent_dir, **kwargs):
             for i in range(len(peptide_res) - 8):
                 p_tcr_window_means.append(
                     (
-                        np.mean(
-                            pae[peptide_res[i : i + 9].resindices][
-                                :, tcr_residx
-                            ]
-                        )
+                        np.mean(pae[peptide_res[i : i + 9].resindices][:, tcr_residx])
                         / 100
                     )
                 )
                 tcr_p_window_means.append(
                     (
-                        np.mean(
-                            pae[tcr_residx][
-                                :, peptide_res[i : i + 9].resindices
-                            ]
-                        )
+                        np.mean(pae[tcr_residx][:, peptide_res[i : i + 9].resindices])
                         / 100
                     )
                 )
@@ -138,11 +130,7 @@ def extract_mean_peptide_mhc_pae(row, af3_parent_dir, **kwargs):
             for i in range(len(peptide_res) - 8):
                 p_mhc_window_means.append(
                     (
-                        np.mean(
-                            pae[peptide_res[i : i + 9].resindices][
-                                :, mhc_residx
-                            ]
-                        )
+                        np.mean(pae[peptide_res[i : i + 9].resindices][:, mhc_residx])
                         / 100
                     )
                 )
@@ -242,9 +230,7 @@ def extract_peptide_pLDDT(row, af3_parent_dir):
     if row["mhc_class"] == "II":
 
         if len(peptide_sel) <= 9:
-            row["peptide_mean_pLDDT"] = 1 - (
-                peptide_sel.atoms.tempfactors.mean() / 100
-            )
+            row["peptide_mean_pLDDT"] = 1 - (peptide_sel.atoms.tempfactors.mean() / 100)
 
         else:
 
@@ -257,9 +243,7 @@ def extract_peptide_pLDDT(row, af3_parent_dir):
             row["peptide_mean_pLDDT"] = gmean(window_means)
 
     else:
-        row["peptide_mean_pLDDT"] = 1 - (
-            peptide_sel.atoms.tempfactors.mean() / 100
-        )
+        row["peptide_mean_pLDDT"] = 1 - (peptide_sel.atoms.tempfactors.mean() / 100)
 
     return row
 
@@ -270,9 +254,7 @@ def extract_cdr_pLDDT(row, af3_parent_dir):
 
     for segid, tcr_num in zip(["D", "E"], [1, 2]):
 
-        tcr_resindices = u_af3.select_atoms(
-            f"segid {segid}"
-        ).residues.resindices
+        tcr_resindices = u_af3.select_atoms(f"segid {segid}").residues.resindices
 
         tcr_indices, imgt_num, _ = annotate_tcr(
             row[f"tcr_{tcr_num}_seq"],
@@ -559,9 +541,7 @@ def transform_zero_one(df, featnames_dict):
         elif direct_relationship == False:
 
             df = df.with_columns(
-                (
-                    1 - ((pl.col(feat) - min_feat) / (max_feat - min_feat))
-                ).alias(feat)
+                (1 - ((pl.col(feat) - min_feat) / (max_feat - min_feat))).alias(feat)
             )
 
     return df
@@ -570,9 +550,7 @@ def transform_zero_one(df, featnames_dict):
 def effective_variance(df):
 
     tmp_dfs = []
-    for antigen in (
-        df.select(FORMAT_ANTIGEN_COLS).unique().iter_rows(named=True)
-    ):
+    for antigen in df.select(FORMAT_ANTIGEN_COLS).unique().iter_rows(named=True):
         focal_tcr_cognate = df.join(
             pl.DataFrame(antigen), on=FORMAT_ANTIGEN_COLS
         ).filter(pl.col("cognate"))
@@ -588,21 +566,15 @@ def effective_variance(df):
         focal_tcr_noncognate = df.join(
             pl.DataFrame(antigen), on=FORMAT_ANTIGEN_COLS
         ).filter(~pl.col("cognate"))
-        feats = cossin_embed(
-            focal_tcr_noncognate.select(TCRDOCK_COLS).to_numpy()
-        )
-        antigen_w_var["tot_var_noncognate"] = np.sum(
-            np.cov(feats, rowvar=False)
-        )
+        feats = cossin_embed(focal_tcr_noncognate.select(TCRDOCK_COLS).to_numpy())
+        antigen_w_var["tot_var_noncognate"] = np.sum(np.cov(feats, rowvar=False))
 
         tmp_dfs.append(pl.DataFrame(antigen_w_var))
 
     return pl.concat(tmp_dfs)
 
 
-def geomean_combine_confidence(
-    df, featnames_dict, featnames_ranges, list_cols=[]
-):
+def geomean_combine_confidence(df, featnames_dict, featnames_ranges, list_cols=[]):
     # carefully transform each feature so that its
     # best (highest P(cognate)) value is 0 and its worst
     # value is 1
@@ -622,9 +594,7 @@ def geomean_combine_confidence(
             )
 
         else:
-            df_inv = df_inv.with_columns(
-                (pl.col(featname) / ra[1]).alias(featname)
-            )
+            df_inv = df_inv.with_columns((pl.col(featname) / ra[1]).alias(featname))
 
     df_agg = df_inv.group_by("entity_id").agg(
         [
@@ -661,12 +631,8 @@ def per_antigen_tcrdist_clust(df, use_provided_cdr=False):
 
     for antigen_df in df_by_antigen:
 
-        cdr_2_5_col = (
-            ["tcr_1_cdr_2_5", "tcr_2_cdr_2_5"] if use_provided_cdr else []
-        )
-        tcr_df = antigen_df.select(
-            FORMAT_TCR_COLS + TCRDIST_COLS + cdr_2_5_col
-        )
+        cdr_2_5_col = ["tcr_1_cdr_2_5", "tcr_2_cdr_2_5"] if use_provided_cdr else []
+        tcr_df = antigen_df.select(FORMAT_TCR_COLS + TCRDIST_COLS + cdr_2_5_col)
 
         tcr_with_idx, pw_dist = pw_tcrdist(
             tcr_df,
@@ -686,9 +652,7 @@ def per_antigen_tcrdist_clust(df, use_provided_cdr=False):
         )
 
         # add cluster labels to tcr_df
-        tcr_with_idx = tcr_with_idx.with_columns(
-            pl.Series("cluster", clusters)
-        )
+        tcr_with_idx = tcr_with_idx.with_columns(pl.Series("cluster", clusters))
 
         # add cluster labels to antigen_df
         antigen_df_clust = antigen_df.join(
@@ -922,3 +886,69 @@ all_featnames_dict = {
     "tcr_mhc_contacts": True,
     "peptide_tcr_contacts": True,
 }
+
+
+def extract_interface_similarity_features(row, msa_dir, complex_type="triad", **kwargs):
+    """
+    Extract interface similarity features for a complex.
+
+    Args:
+        row: Row dictionary containing sequence data
+        msa_dir: Path to MSA directory
+        complex_type: Type of complex ("pmhc" or "triad")
+        **kwargs: Additional keyword arguments
+
+    Returns:
+        Updated row dictionary with interface similarity features
+    """
+    try:
+        from tcrtrifold.interface_similarity import (
+            calculate_pmhc_interface_similarity,
+            calculate_triad_interface_similarity,
+        )
+
+        msa_dir_path = Path(msa_dir)
+
+        if complex_type == "pmhc":
+            similarities = calculate_pmhc_interface_similarity(row, msa_dir_path)
+        elif complex_type == "triad":
+            similarities = calculate_triad_interface_similarity(row, msa_dir_path)
+        else:
+            raise ValueError(f"Unknown complex type: {complex_type}")
+
+        row.update(similarities)
+
+    except Exception as e:
+        # If interface similarity calculation fails, set default values
+        if complex_type == "pmhc":
+            default_cols = [
+                "mhc_1_interface_mean_similarity",
+                "mhc_1_interface_max_similarity",
+                "mhc_1_interface_num_sequences",
+                "mhc_2_interface_mean_similarity",
+                "mhc_2_interface_max_similarity",
+                "mhc_2_interface_num_sequences",
+            ]
+        else:  # triad
+            default_cols = [
+                "mhc_1_interface_mean_similarity",
+                "mhc_1_interface_max_similarity",
+                "mhc_1_interface_num_sequences",
+                "mhc_2_interface_mean_similarity",
+                "mhc_2_interface_max_similarity",
+                "mhc_2_interface_num_sequences",
+                "tcr_1_interface_mean_similarity",
+                "tcr_1_interface_max_similarity",
+                "tcr_1_interface_num_sequences",
+                "tcr_2_interface_mean_similarity",
+                "tcr_2_interface_max_similarity",
+                "tcr_2_interface_num_sequences",
+            ]
+
+        for col in default_cols:
+            if "num_sequences" in col:
+                row[col] = 0
+            else:
+                row[col] = 0.0
+
+    return row

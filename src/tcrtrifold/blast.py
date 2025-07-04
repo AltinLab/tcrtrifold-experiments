@@ -63,18 +63,14 @@ def find_matching(row, blast_result, thresh=95):
 
     new_row["pmhc_match"] = pmhc_match
     new_row["pmhc_match_id"] = (
-        pmhc_match_ids.select("pdb").to_series().to_list()
-        if pmhc_match
-        else None
+        pmhc_match_ids.select("pdb").to_series().to_list() if pmhc_match else None
     )
 
     if len(pmhc_match_ids.select("pdb").to_series().to_list()) > 1:
         print(row["mhc_1_name"])
 
     new_row["pmhc_match_mhc_1_per_identity"] = (
-        pmhc_match_ids[0].select("mhc_1_per_identity").item()
-        if pmhc_match
-        else None
+        pmhc_match_ids[0].select("mhc_1_per_identity").item() if pmhc_match else None
     )
     new_row["pmhc_match_mhc_2_per_identity"] = (
         pmhc_match_ids[0].select("mhc_2_per_identity").item()
@@ -82,8 +78,6 @@ def find_matching(row, blast_result, thresh=95):
         else None
     )
     new_row["pmhc_match_peptide_per_identity"] = (
-        pmhc_match_ids[0].select("peptide_per_identity").item()
-        if pmhc_match
-        else None
+        pmhc_match_ids[0].select("peptide_per_identity").item() if pmhc_match else None
     )
     return pl.DataFrame([new_row])
