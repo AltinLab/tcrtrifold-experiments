@@ -20,9 +20,7 @@ def copyanything(src, dst):
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Clean an AF3 inference directory."
-    )
+    parser = argparse.ArgumentParser(description="Clean an AF3 inference directory.")
     parser.add_argument(
         "-i", "--inf_dir", type=str, required=True, help="Inference directory"
     )

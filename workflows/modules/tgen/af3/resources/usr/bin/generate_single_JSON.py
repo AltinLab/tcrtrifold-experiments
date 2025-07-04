@@ -35,9 +35,7 @@ def read_fasta_seqs(path):
 
 def get_arguments():
     parser = argparse.ArgumentParser(description="Commands to pass to scripts")
-    parser.add_argument(
-        "-jn", "--job_name", type=str, required=True, help="Job name"
-    )
+    parser.add_argument("-jn", "--job_name", type=str, required=True, help="Job name")
     parser.add_argument(
         "-f",
         "--fasta_path",

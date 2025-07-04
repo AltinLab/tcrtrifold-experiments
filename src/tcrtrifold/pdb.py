@@ -12,7 +12,6 @@ from pathlib import Path
 import MDAnalysis as mda
 
 
-
 def get_true_mda_universe(pdb_id, root_path):
     # Favor PDB since it doesn't have multiple residue with same ID issue
     if (root_path / (pdb_id + ".pdb")).exists():

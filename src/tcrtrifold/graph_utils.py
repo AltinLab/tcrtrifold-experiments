@@ -1,9 +1,7 @@
 import matplotlib.pyplot as plt
 
 
-def plot_auc_per_antigen(
-    cv_df, ax=None, title=None, id_cols=[], roc_name="roc_auc"
-):
+def plot_auc_per_antigen(cv_df, ax=None, title=None, id_cols=[], roc_name="roc_auc"):
     """
     Plot ROC curves from antigen_cross_validation_auc output.
 
