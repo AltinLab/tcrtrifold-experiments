@@ -14,5 +14,6 @@
 export NXF_LOG_FILE=tmp/nextflow/cresta/clean_raw_data/nextflow.log
 export NXF_CACHE_DIR=tmp/nextflow/cresta/clean_raw_data/cache
 
-nextflow run \
-    ./workflows/00_clean_raw_data.cresta.nf
+conda run -n nf-core --live-stream  nextflow run \
+    ./workflows/00_clean_raw_data.cresta.nf \
+    --dset_name cresta

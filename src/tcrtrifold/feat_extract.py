@@ -1,12 +1,12 @@
-
 from mdaf3.AF3OutputParser import AF3Output
-from mdaf3.FeatureExtraction import *
-from tcr_format_parsers.common.TCRUtils import (
+from mdaf3.BoltzOutputParser import BoltzOutput
+from mdaf3.FeatureExtraction import raw_helix_indices, anneal_helix_indices
+
+from tcrtrifold.tcr import (
     annotate_tcr,
     tcr_by_imgt_region,
-    pw_tcrdist,
 )
-from tcr_format_parsers.common.TriadUtils import (
+from tcrtrifold.utils import (
     FORMAT_TCR_COLS,
     FORMAT_ANTIGEN_COLS,
     FORMAT_MHC_COLS,
@@ -19,37 +19,41 @@ import scipy
 from itertools import repeat
 
 
-TCRDOCK_COLS = [
-    "d",
-    "torsion",
-    "tcr_unit_y",
-    "tcr_unit_z",
-    "mhc_unit_y",
-    "mhc_unit_z",
-]
+# TCRDOCK_COLS = [
+#     "d",
+#     "torsion",
+#     "tcr_unit_y",
+#     "tcr_unit_z",
+#     "mhc_unit_y",
+#     "mhc_unit_z",
+# ]
 
 
-def tcrdock_info_as_feat(row, dockinfo_path, fname_col="job_name"):
-    if not (dockinfo_path / (row[fname_col] + ".tsv")).exists():
-        for key in TCRDOCK_COLS:
-            row[key] = None
-        return row
+# def tcrdock_info_as_feat(row, dockinfo_path, fname_col="job_name"):
+#     if not (dockinfo_path / (row[fname_col] + ".tsv")).exists():
+#         for key in TCRDOCK_COLS:
+#             row[key] = None
+#         return row
 
-    pred_dockinfo = pl.read_csv(
-        dockinfo_path / (row[fname_col] + ".tsv"), separator="\t"
-    )
+#     pred_dockinfo = pl.read_csv(
+#         dockinfo_path / (row[fname_col] + ".tsv"), separator="\t"
+#     )
 
-    pred_dockinfo = pred_dockinfo.to_dicts()[0]
+#     pred_dockinfo = pred_dockinfo.to_dicts()[0]
 
-    for key in TCRDOCK_COLS:
-        row[key] = pred_dockinfo[key]
+#     for key in TCRDOCK_COLS:
+#         row[key] = pred_dockinfo[key]
 
-    return row
+#     return row
 
 
-def extract_mean_tcr_pmhc_pae(row, af3_parent_dir, **kwargs):
-    af3_output = AF3Output(af3_parent_dir / row["job_name"], **kwargs)
-    u = af3_output.get_mda_universe(**kwargs)
+def extract_mean_tcr_pmhc_pae(row, inf_parent_dir, inference_type, **kwargs):
+    if inference_type == "af3":
+        output = AF3Output(inf_parent_dir / row["job_name"], **kwargs)
+    elif inference_type == "boltz":
+        output = BoltzOutput(inf_parent_dir / row["job_name"], **kwargs)
+
+    u = output.get_mda_universe(**kwargs)
 
     peptide_res = u.select_atoms("segid A").residues
 
@@ -60,51 +64,10 @@ def extract_mean_tcr_pmhc_pae(row, af3_parent_dir, **kwargs):
 
     tcr_residx = u.select_atoms("segid D or segid E").residues.resindices
 
-    pae = af3_output.get_pae_ndarr(**kwargs)
+    pae = output.get_pae_ndarr(**kwargs)
 
-    if row["mhc_class"] == "II":
-        if len(peptide_res) <= 9:
-            row["mean_p_tcr_pae"] = (
-                np.mean(pae[peptide_res.resindices][:, tcr_residx]) / 100
-            )
-            row["mean_tcr_p_pae"] = (
-                np.mean(pae[tcr_residx][:, peptide_res.resindices]) / 100
-            )
-        else:
-
-            p_tcr_window_means = []
-            tcr_p_window_means = []
-            for i in range(len(peptide_res) - 8):
-                p_tcr_window_means.append(
-                    (
-                        np.mean(
-                            pae[peptide_res[i : i + 9].resindices][
-                                :, tcr_residx
-                            ]
-                        )
-                        / 100
-                    )
-                )
-                tcr_p_window_means.append(
-                    (
-                        np.mean(
-                            pae[tcr_residx][
-                                :, peptide_res[i : i + 9].resindices
-                            ]
-                        )
-                        / 100
-                    )
-                )
-            row["mean_p_tcr_pae"] = gmean(p_tcr_window_means)
-            row["mean_tcr_p_pae"] = gmean(tcr_p_window_means)
-
-    else:
-        row["mean_p_tcr_pae"] = (
-            np.mean(pae[peptide_res.resindices][:, tcr_residx]) / 100
-        )
-        row["mean_tcr_p_pae"] = (
-            np.mean(pae[tcr_residx][:, peptide_res.resindices]) / 100
-        )
+    row["mean_p_tcr_pae"] = np.mean(pae[peptide_res.resindices][:, tcr_residx]) / 100
+    row["mean_tcr_p_pae"] = np.mean(pae[tcr_residx][:, peptide_res.resindices]) / 100
 
     # mean_interface_pae = np.mean(pae[pmhc_residx][:, tcr_residx])
 
@@ -114,9 +77,60 @@ def extract_mean_tcr_pmhc_pae(row, af3_parent_dir, **kwargs):
     return row
 
 
-def extract_mean_peptide_mhc_pae(row, af3_parent_dir, **kwargs):
-    af3_output = AF3Output(af3_parent_dir / row["job_name"], **kwargs)
-    u = af3_output.get_mda_universe(**kwargs)
+def extract_mean_tcr_pmhc_pae_class_II(row, inf_parent_dir, inference_type, **kwargs):
+    if inference_type == "af3":
+        output = AF3Output(inf_parent_dir / row["job_name"], **kwargs)
+    elif inference_type == "boltz":
+        output = BoltzOutput(inf_parent_dir / row["job_name"], **kwargs)
+
+    u = output.get_mda_universe(**kwargs)
+
+    peptide_res = u.select_atoms("segid A").residues
+
+    if row["mhc_class"] != "II":
+        raise ValueError
+
+    mhc_residx = u.select_atoms("segid B or segid C").residues.resindices
+
+    tcr_residx = u.select_atoms("segid D or segid E").residues.resindices
+
+    pae = output.get_pae_ndarr(**kwargs)
+
+    if len(peptide_res) <= 9:
+        row["mean_p_tcr_pae_II"] = (
+            np.mean(pae[peptide_res.resindices][:, tcr_residx]) / 100
+        )
+        row["mean_tcr_p_pae_II"] = (
+            np.mean(pae[tcr_residx][:, peptide_res.resindices]) / 100
+        )
+    else:
+
+        p_tcr_window_means = []
+        tcr_p_window_means = []
+        for i in range(len(peptide_res) - 8):
+            p_tcr_window_means.append(
+                (np.mean(pae[peptide_res[i : i + 9].resindices][:, tcr_residx]) / 100)
+            )
+            tcr_p_window_means.append(
+                (np.mean(pae[tcr_residx][:, peptide_res[i : i + 9].resindices]) / 100)
+            )
+        row["mean_p_tcr_pae_II"] = gmean(p_tcr_window_means)
+        row["mean_tcr_p_pae_II"] = gmean(tcr_p_window_means)
+
+    # mean_interface_pae = np.mean(pae[pmhc_residx][:, tcr_residx])
+
+    row["mean_mhc_tcr_pae_II"] = np.mean(pae[mhc_residx][:, tcr_residx])
+    row["mean_tcr_mhc_pae_II"] = np.mean(pae[tcr_residx][:, mhc_residx])
+
+    return row
+
+
+def extract_mean_peptide_mhc_pae(row, inf_parent_dir, inference_type, **kwargs):
+    if inference_type == "af3":
+        output = AF3Output(inf_parent_dir / row["job_name"], **kwargs)
+    elif inference_type == "boltz":
+        output = BoltzOutput(inf_parent_dir / row["job_name"], **kwargs)
+    u = output.get_mda_universe(**kwargs)
 
     peptide_res = u.select_atoms("segid A").residues
 
@@ -125,7 +139,7 @@ def extract_mean_peptide_mhc_pae(row, af3_parent_dir, **kwargs):
     else:
         mhc_residx = u.select_atoms("segid B").residues.resindices
 
-    pae = af3_output.get_pae_ndarr(**kwargs)
+    pae = output.get_pae_ndarr(**kwargs)
 
     if row["mhc_class"] == "II":
         if len(peptide_res) <= 9:
@@ -138,11 +152,7 @@ def extract_mean_peptide_mhc_pae(row, af3_parent_dir, **kwargs):
             for i in range(len(peptide_res) - 8):
                 p_mhc_window_means.append(
                     (
-                        np.mean(
-                            pae[peptide_res[i : i + 9].resindices][
-                                :, mhc_residx
-                            ]
-                        )
+                        np.mean(pae[peptide_res[i : i + 9].resindices][:, mhc_residx])
                         / 100
                     )
                 )
@@ -197,40 +207,40 @@ def extract_min_tcr_pmhc_pae(row, af3_parent_dir, **kwargs):
     return row
 
 
-def extract_summary_metrics(row, af3_parent_dir, **kwargs):
-    af3_output = AF3Output(af3_parent_dir / row["job_name"], **kwargs)
+# def extract_summary_metrics(row, af3_parent_dir, **kwargs):
+#     af3_output = AF3Output(af3_parent_dir / row["job_name"], **kwargs)
 
-    summ = af3_output.get_summary_metrics(**kwargs)
+#     summ = af3_output.get_summary_metrics(**kwargs)
 
-    # scalar_dict = {
-    #     "ptm": summ["ptm"],
-    #     "iptm": summ["iptm"],
-    #     "fraction_disordered": summ["fraction_disordered"],
-    #     "has_clash": summ["has_clash"],
-    #     "ranking_score": summ["ranking_score"],
-    # }
+#     # scalar_dict = {
+#     #     "ptm": summ["ptm"],
+#     #     "iptm": summ["iptm"],
+#     #     "fraction_disordered": summ["fraction_disordered"],
+#     #     "has_clash": summ["has_clash"],
+#     #     "ranking_score": summ["ranking_score"],
+#     # }
 
-    small_arrs = [
-        "chain_pair_pae_min",
-        "chain_pair_iptm",
-        "chain_ptm",
-        "chain_iptm",
-    ]
+#     small_arrs = [
+#         "chain_pair_pae_min",
+#         "chain_pair_iptm",
+#         "chain_ptm",
+#         "chain_iptm",
+#     ]
 
-    # convert to list of lists
-    for arr in small_arrs:
-        summ[arr] = summ[arr].tolist()
+#     # convert to list of lists
+#     for arr in small_arrs:
+#         summ[arr] = summ[arr].tolist()
 
-    row.update(summ)
+#     row.update(summ)
 
-    # schema_overrides = {
-    #     "chain_pair_pae_min": pl.List(pl.List(pl.Float32)),
-    #     "chain_pair_iptm": pl.List(pl.List(pl.Float32)),
-    #     "chain_ptm": pl.List(pl.Float32),
-    #     "chain_iptm": pl.List(pl.Float32),
-    # }
+#     # schema_overrides = {
+#     #     "chain_pair_pae_min": pl.List(pl.List(pl.Float32)),
+#     #     "chain_pair_iptm": pl.List(pl.List(pl.Float32)),
+#     #     "chain_ptm": pl.List(pl.Float32),
+#     #     "chain_iptm": pl.List(pl.Float32),
+#     # }
 
-    return row
+#     return row
 
 
 def extract_peptide_pLDDT(row, af3_parent_dir):
@@ -242,9 +252,7 @@ def extract_peptide_pLDDT(row, af3_parent_dir):
     if row["mhc_class"] == "II":
 
         if len(peptide_sel) <= 9:
-            row["peptide_mean_pLDDT"] = 1 - (
-                peptide_sel.atoms.tempfactors.mean() / 100
-            )
+            row["peptide_mean_pLDDT"] = 1 - (peptide_sel.atoms.tempfactors.mean() / 100)
 
         else:
 
@@ -257,9 +265,7 @@ def extract_peptide_pLDDT(row, af3_parent_dir):
             row["peptide_mean_pLDDT"] = gmean(window_means)
 
     else:
-        row["peptide_mean_pLDDT"] = 1 - (
-            peptide_sel.atoms.tempfactors.mean() / 100
-        )
+        row["peptide_mean_pLDDT"] = 1 - (peptide_sel.atoms.tempfactors.mean() / 100)
 
     return row
 
@@ -270,9 +276,7 @@ def extract_cdr_pLDDT(row, af3_parent_dir):
 
     for segid, tcr_num in zip(["D", "E"], [1, 2]):
 
-        tcr_resindices = u_af3.select_atoms(
-            f"segid {segid}"
-        ).residues.resindices
+        tcr_resindices = u_af3.select_atoms(f"segid {segid}").residues.resindices
 
         tcr_indices, imgt_num, _ = annotate_tcr(
             row[f"tcr_{tcr_num}_seq"],
@@ -319,7 +323,7 @@ def extract_mhc_helix_pLDDT(row, af3_parent_dir):
 
     raw_helix_ix = raw_helix_indices(mhc_atoms)
 
-    helix_resindices = join_helix_indices(raw_helix_ix)
+    helix_resindices = anneal_helix_indices(raw_helix_ix)
 
     if len(helix_resindices) != 2:
         raise ValueError(
@@ -337,10 +341,16 @@ def extract_mhc_helix_pLDDT(row, af3_parent_dir):
     return row
 
 
-def extract_num_contacts(row, af3_parent_dir, **kwargs):
-    af3_output = AF3Output(af3_parent_dir / row["job_name"], **kwargs)
-    u_af3 = af3_output.get_mda_universe()
-    contact_probs = af3_output.get_contact_prob_ndarr()
+def extract_num_contacts(row, inf_parent_dir, inference_type, **kwargs):
+    if inference_type == "af3":
+        output = AF3Output(inf_parent_dir / row["job_name"], **kwargs)
+    elif inference_type == "boltz":
+        raise ValueError
+        # output = BoltzOutput(inf_parent_dir / row["job_name"], **kwargs)
+
+    u_af3 = output.get_mda_universe(**kwargs)
+
+    contact_probs = output.get_contact_prob_ndarr()
 
     peptide_tcr_thresh = 0.5
     tcr_mhc_thresh = 0.9
@@ -349,14 +359,18 @@ def extract_num_contacts(row, af3_parent_dir, **kwargs):
         mhc_atoms = u_af3.select_atoms("segid B")
 
         raw_helix_ix = raw_helix_indices(mhc_atoms)
-        helix_resindices = join_helix_indices(raw_helix_ix)
+        helix_resindices = anneal_helix_indices(raw_helix_ix)
 
         hla_a_res = helix_resindices[0]
         hla_b_res = helix_resindices[1]
 
     else:
-        hla_a_res = u_af3.select_atoms("segid B").residues.resindices
-        hla_b_res = u_af3.select_atoms("segid C").residues.resindices
+        hla_a_res = anneal_helix_indices(
+            raw_helix_indices(u_af3.select_atoms("segid B"))
+        )[0]
+        hla_b_res = anneal_helix_indices(
+            raw_helix_indices(u_af3.select_atoms("segid C"))
+        )[0]
 
     # first, extract broad summary contact metrics
     peptide_sel = u_af3.select_atoms("segid A").residues
@@ -510,37 +524,37 @@ def extract_tcr_pmhc_iptm_perseed(row, af3_parent_dir):
     return row
 
 
-def raw_helix_indices(sel):
-    # find helices
-    # https://docs.mdanalysis.org/2.8.0/documentation_pages/analysis/dssp.html
-    helix_resindices_boolmask = DSSP(sel).run().results.dssp_ndarray[0, :, 1]
-    return sel.residues[helix_resindices_boolmask].resindices
+# def raw_helix_indices(sel):
+#     # find helices
+#     # https://docs.mdanalysis.org/2.8.0/documentation_pages/analysis/dssp.html
+#     helix_resindices_boolmask = DSSP(sel).run().results.dssp_ndarray[0, :, 1]
+#     return sel.residues[helix_resindices_boolmask].resindices
 
 
-def join_helix_indices(helix_resindices, len_tol=15, gap_tol=10):
+# def join_helix_indices(helix_resindices, len_tol=15, gap_tol=10):
 
-    helices = []
-    curr_helix = []
-    prev_ix = helix_resindices[0] - 1
-    for i in range(len(helix_resindices)):
+#     helices = []
+#     curr_helix = []
+#     prev_ix = helix_resindices[0] - 1
+#     for i in range(len(helix_resindices)):
 
-        if helix_resindices[i] - prev_ix <= gap_tol:
-            # fill gap
-            append_ix = range(prev_ix + 1, helix_resindices[i] + 1)
-            curr_helix.extend(append_ix)
+#         if helix_resindices[i] - prev_ix <= gap_tol:
+#             # fill gap
+#             append_ix = range(prev_ix + 1, helix_resindices[i] + 1)
+#             curr_helix.extend(append_ix)
 
-            if i == len(helix_resindices) - 1 and len(curr_helix) >= len_tol:
-                helices.append(curr_helix)
+#             if i == len(helix_resindices) - 1 and len(curr_helix) >= len_tol:
+#                 helices.append(curr_helix)
 
-        else:
-            if len(curr_helix) >= len_tol:
-                helices.append(curr_helix)
-            # start new helix
-            curr_helix = [helix_resindices[i]]
+#         else:
+#             if len(curr_helix) >= len_tol:
+#                 helices.append(curr_helix)
+#             # start new helix
+#             curr_helix = [helix_resindices[i]]
 
-        prev_ix = helix_resindices[i]
+#         prev_ix = helix_resindices[i]
 
-    return helices
+#     return helices
 
 
 def transform_zero_one(df, featnames_dict):
@@ -559,9 +573,7 @@ def transform_zero_one(df, featnames_dict):
         elif direct_relationship == False:
 
             df = df.with_columns(
-                (
-                    1 - ((pl.col(feat) - min_feat) / (max_feat - min_feat))
-                ).alias(feat)
+                (1 - ((pl.col(feat) - min_feat) / (max_feat - min_feat))).alias(feat)
             )
 
     return df
@@ -570,9 +582,7 @@ def transform_zero_one(df, featnames_dict):
 def effective_variance(df):
 
     tmp_dfs = []
-    for antigen in (
-        df.select(FORMAT_ANTIGEN_COLS).unique().iter_rows(named=True)
-    ):
+    for antigen in df.select(FORMAT_ANTIGEN_COLS).unique().iter_rows(named=True):
         focal_tcr_cognate = df.join(
             pl.DataFrame(antigen), on=FORMAT_ANTIGEN_COLS
         ).filter(pl.col("cognate"))
@@ -588,21 +598,15 @@ def effective_variance(df):
         focal_tcr_noncognate = df.join(
             pl.DataFrame(antigen), on=FORMAT_ANTIGEN_COLS
         ).filter(~pl.col("cognate"))
-        feats = cossin_embed(
-            focal_tcr_noncognate.select(TCRDOCK_COLS).to_numpy()
-        )
-        antigen_w_var["tot_var_noncognate"] = np.sum(
-            np.cov(feats, rowvar=False)
-        )
+        feats = cossin_embed(focal_tcr_noncognate.select(TCRDOCK_COLS).to_numpy())
+        antigen_w_var["tot_var_noncognate"] = np.sum(np.cov(feats, rowvar=False))
 
         tmp_dfs.append(pl.DataFrame(antigen_w_var))
 
     return pl.concat(tmp_dfs)
 
 
-def geomean_combine_confidence(
-    df, featnames_dict, featnames_ranges, list_cols=[]
-):
+def geomean_combine_confidence(df, featnames_dict, featnames_ranges, list_cols=[]):
     # carefully transform each feature so that its
     # best (highest P(cognate)) value is 0 and its worst
     # value is 1
@@ -622,9 +626,7 @@ def geomean_combine_confidence(
             )
 
         else:
-            df_inv = df_inv.with_columns(
-                (pl.col(featname) / ra[1]).alias(featname)
-            )
+            df_inv = df_inv.with_columns((pl.col(featname) / ra[1]).alias(featname))
 
     df_agg = df_inv.group_by("entity_id").agg(
         [
@@ -661,12 +663,8 @@ def per_antigen_tcrdist_clust(df, use_provided_cdr=False):
 
     for antigen_df in df_by_antigen:
 
-        cdr_2_5_col = (
-            ["tcr_1_cdr_2_5", "tcr_2_cdr_2_5"] if use_provided_cdr else []
-        )
-        tcr_df = antigen_df.select(
-            FORMAT_TCR_COLS + TCRDIST_COLS + cdr_2_5_col
-        )
+        cdr_2_5_col = ["tcr_1_cdr_2_5", "tcr_2_cdr_2_5"] if use_provided_cdr else []
+        tcr_df = antigen_df.select(FORMAT_TCR_COLS + TCRDIST_COLS + cdr_2_5_col)
 
         tcr_with_idx, pw_dist = pw_tcrdist(
             tcr_df,
@@ -686,9 +684,7 @@ def per_antigen_tcrdist_clust(df, use_provided_cdr=False):
         )
 
         # add cluster labels to tcr_df
-        tcr_with_idx = tcr_with_idx.with_columns(
-            pl.Series("cluster", clusters)
-        )
+        tcr_with_idx = tcr_with_idx.with_columns(pl.Series("cluster", clusters))
 
         # add cluster labels to antigen_df
         antigen_df_clust = antigen_df.join(
@@ -877,48 +873,48 @@ def tcrdist_pep_rmsd_corr(df, inf_path, cognate_only=False):
     return pl.concat(out_dfs)
 
 
-extract_funcs = [
-    extract_mean_tcr_pmhc_pae,
-    extract_min_tcr_pmhc_pae,
-    extract_summary_metrics,
-    extract_peptide_pLDDT,
-    extract_cdr_pLDDT,
-    extract_mhc_helix_pLDDT,
-    extract_num_contacts,
-    extract_imgt_correct_species,
-    extract_tcr_pmhc_iptm_perseed,
-]
+# extract_funcs = [
+#     extract_mean_tcr_pmhc_pae,
+#     extract_min_tcr_pmhc_pae,
+#     extract_summary_metrics,
+#     extract_peptide_pLDDT,
+#     extract_cdr_pLDDT,
+#     extract_mhc_helix_pLDDT,
+#     extract_num_contacts,
+#     extract_imgt_correct_species,
+#     extract_tcr_pmhc_iptm_perseed,
+# ]
 
-antigen_extract_funcs = [
-    extract_mean_peptide_mhc_pae,
-    extract_summary_metrics,
-    extract_peptide_pLDDT,
-    extract_mhc_helix_pLDDT,
-]
+# antigen_extract_funcs = [
+#     extract_mean_peptide_mhc_pae,
+#     extract_summary_metrics,
+#     extract_peptide_pLDDT,
+#     extract_mhc_helix_pLDDT,
+# ]
 
-all_featnames_dict = {
-    "mean_tcr_p_pae": False,
-    "mean_p_tcr_pae": False,
-    "mean_mhc_tcr_pae": False,
-    "mean_tcr_mhc_pae": False,
-    "min_p_tcr_pae": False,
-    "min_mhc_tcr_pae": False,
-    "min_tcr_p_pae": False,
-    "min_tcr_mhc_pae": False,
-    "ptm": True,
-    "iptm": True,
-    "fraction_disordered": True,
-    "ranking_score": True,
-    "peptide_mean_pLDDT": False,
-    "tcr_1_cdr_1_mean_pLDDT": True,
-    "tcr_1_cdr_2_mean_pLDDT": True,
-    "tcr_1_cdr_2_5_mean_pLDDT": True,
-    "tcr_1_cdr_3_mean_pLDDT": True,
-    "tcr_2_cdr_1_mean_pLDDT": True,
-    "tcr_2_cdr_2_mean_pLDDT": True,
-    "tcr_2_cdr_2_5_mean_pLDDT": True,
-    "tcr_2_cdr_3_mean_pLDDT": True,
-    "mhc_helices_mean_pLDDT": True,
-    "tcr_mhc_contacts": True,
-    "peptide_tcr_contacts": True,
-}
+# all_featnames_dict = {
+#     "mean_tcr_p_pae": False,
+#     "mean_p_tcr_pae": False,
+#     "mean_mhc_tcr_pae": False,
+#     "mean_tcr_mhc_pae": False,
+#     "min_p_tcr_pae": False,
+#     "min_mhc_tcr_pae": False,
+#     "min_tcr_p_pae": False,
+#     "min_tcr_mhc_pae": False,
+#     "ptm": True,
+#     "iptm": True,
+#     "fraction_disordered": True,
+#     "ranking_score": True,
+#     "peptide_mean_pLDDT": False,
+#     "tcr_1_cdr_1_mean_pLDDT": True,
+#     "tcr_1_cdr_2_mean_pLDDT": True,
+#     "tcr_1_cdr_2_5_mean_pLDDT": True,
+#     "tcr_1_cdr_3_mean_pLDDT": True,
+#     "tcr_2_cdr_1_mean_pLDDT": True,
+#     "tcr_2_cdr_2_mean_pLDDT": True,
+#     "tcr_2_cdr_2_5_mean_pLDDT": True,
+#     "tcr_2_cdr_3_mean_pLDDT": True,
+#     "mhc_helices_mean_pLDDT": True,
+#     "tcr_mhc_contacts": True,
+#     "peptide_tcr_contacts": True,
+# }

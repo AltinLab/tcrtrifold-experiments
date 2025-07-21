@@ -1,5 +1,6 @@
 params.outdir = "$params.data_dir/$params.dset_name/triad"
 params.skip_msa = "0"
+params.check_inf_exists = true
 
 include { splitParquet } from 'plugin/nf-parquet'
 include { INFERENCE_WORKFLOW }from './subworkflows/tgen/af3'
@@ -16,6 +17,7 @@ workflow {
                         [
                             id : row["job_name"],
                             protein_types : ["peptide", "mhc", "tcr", "tcr"],
+                            segids : ["A", "B", "D", "E"]
                         ],
                         [row["peptide"], row["mhc_1_seq"], row["tcr_1_seq"], row["tcr_2_seq"]],
                     )
@@ -25,6 +27,7 @@ workflow {
                         [
                             id : row["job_name"],
                             protein_types : ["peptide", "mhc", "mhc", "tcr", "tcr"],
+                            segids : ["A", "B", "C", "D", "E"]
                         ],
                         [row["peptide"], row["mhc_1_seq"], row["mhc_2_seq"], row["tcr_1_seq"], row["tcr_2_seq"]],
                     )

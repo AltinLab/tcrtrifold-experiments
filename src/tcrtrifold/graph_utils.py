@@ -1,66 +1,64 @@
-import matplotlib.pyplot as plt
+from torch_geometric.data import Data
+from torch_geometric.transforms import ToUndirected
+import torch_geometric.transforms as T
+from torch_geometric.utils import remove_isolated_nodes
+import h5py
+from MDAnalysis.analysis.distances import distance_array, self_distance_array
+from scipy.spatial.distance import squareform
+import torch
+import numpy as np
 
 
-def plot_auc_per_antigen(
-    cv_df, ax=None, title=None, id_cols=[], roc_name="roc_auc"
-):
-    """
-    Plot ROC curves from antigen_cross_validation_auc output.
+def mda_triad_to_graph(u, contact_prob, mhc_class, cognate, id):
 
-    Parameters
-    ----------
-    cv_df : pl.DataFrame
-        Must have List-type columns 'fpr' and 'tpr', and a float column 'roc_auc',
-        plus one or more identifier columns (e.g. peptide, mhc_1, mhc_2).
-    ax : matplotlib.axes.Axes, optional
-        If provided, plot into this Axes. Otherwise creates a new figure+axis.
-    title : str, optional
-        Overall title for the plot.
+    focal_atm = u.select_atoms("segid A or around 5 segid A")
+    focal_res = focal_atm.residues
+    focal_calpha = focal_res.atoms.select_atoms("name CA")
 
-    Returns
-    -------
-    ax : matplotlib.axes.Axes
-        The Axes with your ROC curves.
-    """
-    # create new figure if needed
-    if ax is None:
-        fig, ax = plt.subplots(figsize=(6, 6))
+    node_positions = torch.from_numpy(focal_calpha.positions)
+    node_confidences = torch.tensor([res.atoms.tempfactors.mean() for res in focal_res])
 
-    aucs = []
+    edge_index_list = []
 
-    cv_df = cv_df.sort(by=id_cols)
+    for i, res_1 in enumerate(focal_res[:-1]):
+        for j, res_2 in zip(range(i + 1, len(focal_res)), focal_res[i + 1 :]):
+            min_d = distance_array(res_1.atoms.positions, res_2.atoms.positions).min()
+            if min_d < 5:
+                edge_index_list.append([i, j])
 
-    # plot each ROC
-    for row in cv_df.iter_rows(named=True):
-        fpr = row["fpr"]
-        tpr = row["tpr"]
-        auc = row[roc_name]
-        aucs.append(auc)
-        # build label from the ID columns
-        label_parts = [f"{col}: {row[col]}" for col in id_cols]
-        label = ", ".join(label_parts) + f" (AUC {auc:.2f})"
-        ax.plot(fpr, tpr, lw=1.5, label=label)
+    edge_index = np.array(edge_index_list)
+    # use calpha to calculate edge dist
+    # can result in edge >5 angstrom
+    edge_distances = squareform(self_distance_array(focal_calpha.positions))[
+        edge_index[:, 0], edge_index[:, 1]
+    ]
 
-    mean_auc = sum(aucs) / len(aucs)
-    ax.text(
-        0.05,
-        0.95,
-        f"Mean AUC: {mean_auc:.2f}",
-        transform=ax.transAxes,
-        ha="left",
-        va="top",
-        fontsize="small",
-        bbox=dict(boxstyle="round,pad=0.3", alpha=0.3),
+    row_residx = focal_res[edge_index[:, 0]].resindices
+    col_residx = focal_res[edge_index[:, 1]].resindices
+    edge_contact_prob = contact_prob[row_residx, col_residx]
+
+    x = torch.from_numpy(np.stack([node_confidences]).T)
+    edge_attr = torch.from_numpy(np.stack([edge_distances, edge_contact_prob]).T)
+
+    edge_index = torch.from_numpy(edge_index.T)
+
+    # edge_index, edge_attr, node_boolmask = remove_isolated_nodes(
+    #     edge_index, edge_attr, num_nodes=x.shape[0]
+    # )
+
+    # x = x[node_boolmask]
+    # node_positions = node_positions[node_boolmask]
+
+    segids = list(str(ch) for ch in focal_res.segids.astype(np.str_))
+
+    graph = Data(
+        x=x,
+        edge_index=edge_index,
+        y=torch.tensor([cognate]),
+        edge_attr=edge_attr,
+        pos=node_positions,
+        id=id,
+        segids=segids,
     )
 
-    # chance line
-    ax.plot([0, 1], [0, 1], "--", lw=1, color="grey")
-
-    ax.set_xlabel("False Positive Rate")
-    ax.set_ylabel("True Positive Rate")
-    if title:
-        ax.set_title(title)
-    ax.legend(loc="right", fontsize=5)
-    ax.grid(True)
-
-    return ax
+    return ToUndirected()(graph)

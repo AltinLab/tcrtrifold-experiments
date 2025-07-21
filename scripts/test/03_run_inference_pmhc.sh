@@ -21,4 +21,6 @@ export NXF_CACHE_DIR=tmp/nextflow/test/inference_pmhc/cache
 conda run -n nf-core --live-stream nextflow run \
     ./workflows/03_inference_pmhc.nf \
         --dset_name test \
-        --skip_msa 0
+        --skip_msa 0 \
+        --seeds 1,2,3,4,5 \
+        --check_inf_exists false

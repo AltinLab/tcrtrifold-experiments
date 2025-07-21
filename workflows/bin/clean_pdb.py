@@ -34,21 +34,6 @@ SEQ_STRUCT = pl.Struct(
 )
 
 
-def download_pdb(row, path):
-
-    r = requests.get(f"https://files.rcsb.org/download/{row["pdb"]}.pdb")
-    suffix = ".pdb"
-    try:
-        r.raise_for_status()
-    except Exception as e:
-        r = requests.get(f"https://files.rcsb.org/download/{row["pdb"]}.cif")
-        suffix = ".cif"
-        r.raise_for_status()
-    with open(path / (row["pdb"] + suffix), "wb") as f:
-        f.write(r.content)
-    return row
-
-
 def extract_pdb_date(row):
     r = requests.get("https://data.rcsb.org/rest/v1/core/entry/" + row["pdb"])
     r.raise_for_status()
@@ -118,7 +103,7 @@ post_fasta_corrections = {
     "6bga": {"peptide": "ADSLSFFSSSIKR"},
     "3pl6": {"peptide": "MKENPVVHFFKNIVTPR"},
     "3o6f": {"peptide": "FSWGAEGQRPGFGS"},
-    "6dfw": {"peptide": "HLVERLYLVCGGEGAGGG"},
+    "6dfw": {"peptide": "HLVERLYLVCGGE"},
     "3c5z": {"peptide": "FEAQKAKANKAVD"},
     "3rdt": {"peptide": "FEAQKAKANKAVD"},
     "6dfx": {"peptide": "VEELYLVAGEEGCG"},
@@ -126,8 +111,8 @@ post_fasta_corrections = {
     "4grl": {"peptide": "MKDRLLMLFAKDVVSRN"},
     "6mnn": {"peptide": "RVSYYGPKTSPVQ"},
     "6dfs": {"peptide": "HLVERLYLVCGEEGA"},
-    "4p4k": {"peptide": "QAFWIDLFETIGGGSLVPRGS"},
-    "4may": {"peptide": "MKRQLVHFVRDFAQLGGS"},
+    "4p4k": {"peptide": "QAFWIDLFETI"},
+    "4may": {"peptide": "MKRQLVHFVRDFAQL"},
 }
 
 # this is a record of PDB IDs post AF3 cutoff that we find acceptably formatted for our use

@@ -38,6 +38,26 @@ if __name__ == "__main__":
 
     base_df = pl.read_parquet(args.base_df).sort(by="job_name")
 
+    # for the sake of this script, set null mhc_2_seqs to ""
+    base_df = base_df.with_columns(
+        pl.when(pl.col("mhc_2_seq").is_null())
+        .then(pl.lit(""))
+        .otherwise(pl.col("mhc_2_seq"))
+        .alias("mhc_2_seq"),
+        pl.when(pl.col("mhc_2_name").is_null())
+        .then(pl.lit(""))
+        .otherwise(pl.col("mhc_2_name"))
+        .alias("mhc_2_name"),
+        pl.when(pl.col("mhc_2_species").is_null())
+        .then(pl.lit(""))
+        .otherwise(pl.col("mhc_2_species"))
+        .alias("mhc_2_species"),
+        pl.when(pl.col("mhc_2_chain").is_null())
+        .then(pl.lit(""))
+        .otherwise(pl.col("mhc_2_chain"))
+        .alias("mhc_2_chain"),
+    )
+
     antigen_df = base_df.group_by(FORMAT_ANTIGEN_COLS, maintain_order=True).agg(
         (pl.len() * args.neg_depth).alias("needed_negs")
     )
@@ -60,6 +80,25 @@ if __name__ == "__main__":
             break
 
     out_df = pl.concat([base_df] + neg_dfs, how="diagonal_relaxed")
+
+    out_df = out_df.with_columns(
+        pl.when(pl.col("mhc_2_seq") == "")
+        .then(pl.lit(None))
+        .otherwise(pl.col("mhc_2_seq"))
+        .alias("mhc_2_seq"),
+        pl.when(pl.col("mhc_2_name") == "")
+        .then(pl.lit(None))
+        .otherwise(pl.col("mhc_2_name"))
+        .alias("mhc_2_name"),
+        pl.when(pl.col("mhc_2_species") == "")
+        .then(pl.lit(None))
+        .otherwise(pl.col("mhc_2_species"))
+        .alias("mhc_2_species"),
+        pl.when(pl.col("mhc_2_chain") == "")
+        .then(pl.lit(None))
+        .otherwise(pl.col("mhc_2_chain"))
+        .alias("mhc_2_chain"),
+    )
 
     out_df.write_parquet(args.output_path)
 

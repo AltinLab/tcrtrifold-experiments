@@ -49,7 +49,7 @@ process FORMAT_TRUE_PDBS {
 
   script:
   """
-  format_true_pdbs.py \
+  format_true_pdbs.py \\
     --pdb_parquet ${pdb_pq} \\
     --output_dir .
   """
