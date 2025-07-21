@@ -77,7 +77,11 @@ def generate_all_possible_negs(
                 )
                 .map_elements(
                     lambda x: (editdistance.eval(x["mhc_1_seq"], mhc_1_seq))
-                    + (editdistance.eval(x["mhc_2_seq"], mhc_2_seq))
+                    + (
+                        (editdistance.eval(x["mhc_2_seq"], mhc_2_seq))
+                        if x["mhc_2_seq"] is not None and mhc_2_seq is not None
+                        else 0
+                    )
                     + (editdistance.eval(x["peptide"], peptide)),
                     return_dtype=pl.Int64,
                 )

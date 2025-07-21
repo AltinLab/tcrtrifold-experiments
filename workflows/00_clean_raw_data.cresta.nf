@@ -6,12 +6,12 @@ process CLEAN_CRESTA {
   label "tcrtrifold_local"
 
   publishDir(
-    path: {"${params.data_dir}/cresta/triad/staged"},
+    path: {"${params.data_dir}/${params.dset_name}/triad/staged"},
     pattern: "*triad*",
     mode: 'copy'
   )
   publishDir(
-    path: {"${params.data_dir}/cresta/pmhc/staged"},
+    path: {"${params.data_dir}/${params.dset_name}/pmhc/staged"},
     pattern: "*pmhc*",
     mode: 'copy'
   )
@@ -28,13 +28,13 @@ process CLEAN_CRESTA {
   """
   clean_cresta.py \\
     --raw_csv_path ${cresta} \\
-    -ot cresta_triad.cleaned.parquet \\
-    -op cresta_pmhc.cleaned.parquet 
+    -ot cresta_triad.neg.parquet \\
+    -op cresta_pmhc.neg.parquet 
   """
 }
 
 
 workflow {
 
-  CLEAN_CRESTA(Channel.fromPath("data/cresta/raw/cresta.csv"))
+  CLEAN_CRESTA(Channel.fromPath("${params.data_dir}/${params.dset_name}/raw/cresta.csv"))
 }

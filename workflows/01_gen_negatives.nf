@@ -1,6 +1,6 @@
 
 process GEN_NEGATIVES {
-  label "tcrtrifold_heavy"
+  label "tcrtrifold_very_heavy"
 
   publishDir "${params.data_dir}/${params.dset_name}/triad/staged", mode: 'copy'
 

@@ -33,7 +33,19 @@ if __name__ == "__main__":
 
     addtl_cols = TCRDIST_COLS
 
-    cresta = pl.read_csv(args.raw_csv_path)
+    cresta = pl.read_csv(args.raw_csv_path).select(FORMAT_COLS).unique()
+
+    # overwrite job name
+    cresta = generate_job_name(
+        cresta,
+        [
+            "peptide",
+            "mhc_1_seq",
+            "mhc_2_seq",
+            "tcr_1_seq",
+            "tcr_2_seq",
+        ],
+    )
 
     cresta = serial_apply(
         cresta,

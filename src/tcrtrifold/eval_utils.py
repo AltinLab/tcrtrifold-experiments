@@ -8,6 +8,35 @@ import sklearn.metrics as metrics
 from scipy.stats import pearsonr, spearmanr
 
 
+def antigen_raw_score_auc(
+    triad_dataset,
+    featname,
+):
+
+    antigens = triad_dataset.select(FORMAT_ANTIGEN_COLS).unique()
+
+    out_df = []
+
+    for row in antigens.iter_rows(named=True):
+        antigen = pl.DataFrame([row]).select(pl.exclude("job_name"))
+        aucs = []
+        focal_antigen_triads = triad_dataset.join(antigen, on=FORMAT_ANTIGEN_COLS)
+
+        new_row = row.copy()
+
+        dat = focal_antigen_triads.select(featname, "cognate").to_numpy()
+
+        fpr, tpr, threshold = metrics.roc_curve(dat[:, 1], dat[:, 0])
+        roc_auc = metrics.auc(fpr, tpr)
+        new_row["auc"] = roc_auc
+        new_row["fpr"] = fpr.tolist()
+        new_row["tpr"] = tpr.tolist()
+
+        out_df.append(new_row)
+
+    return pl.DataFrame(out_df)
+
+
 def train_model(train_df, featnames, model_class, **kwargs):
 
     n_feat = len(featnames)
