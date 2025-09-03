@@ -123,5 +123,4 @@ tmp
 
 # data
 data/*
-!data/test
-!data/*.dvc
+logs

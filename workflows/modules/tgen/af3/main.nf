@@ -51,35 +51,28 @@ process SEQ_LIST_TO_FASTA {
 //     """
 // }
 
-process COMPOSE_EMPTY_MSA_JSON {
-    label "process_local"
-    tag "${meta.protein_type}-${meta.id}"
+// process COMPOSE_EMPTY_MSA_JSON {
+//     label "process_local"
+//     tag "${meta.protein_type}-${meta.id}"
 
-    input:
-    tuple val(meta), path(fasta)
+//     input:
+//     tuple val(meta), path(fasta)
 
-    output:
-    tuple val(meta), path("*.json")
+//     output:
+//     tuple val(meta), path("*.json")
 
-    script:
-    """
-    module load singularity
-
-    # name doesn't matter here
-    fname=\$(uuidgen)
-
-    singularity exec --nv \\
-        -B /home,/scratch,/tgen_labs --cleanenv \\
-        /tgen_labs/altin/alphafold3/containers/msa-db.sif \\
-        python ${moduleDir}/resources/usr/bin/generate_single_JSON.py \\
-            -f "$fasta" \\
-            -jn "\$fname" 
-    """
- }
+//     script:
+//     """
+//     generate_single_JSON.py \\
+//         --fasta "$fasta" \\
+//         --job_name "${meta.id}"
+//     """
+//  }
 
 process FILT_FORMAT_MSA {
     label "process_local"
     tag "${meta.protein_type}-${meta.id}"
+    conda "${moduleDir}/environment.yaml"
 
     input:
     tuple val(meta), path(fasta)
@@ -91,98 +84,88 @@ process FILT_FORMAT_MSA {
     script:
     def force = params.force_update_msa ? "--force" : ''
     """
-    module load singularity
-
-    export SINGULARITYENV_VAST_S3_ACCESS_KEY_ID="\$VAST_S3_ACCESS_KEY_ID"
-    export SINGULARITYENV_VAST_S3_SECRET_ACCESS_KEY="\$VAST_S3_SECRET_ACCESS_KEY"
-
-    singularity exec --nv \\
-        -B /home,/scratch,/tgen_labs --cleanenv \\
-        /tgen_labs/altin/alphafold3/containers/msa-db.sif \\
-        python ${moduleDir}/resources/usr/bin/filt_format_msa.py \\
-            -t "${meta.protein_type}" \\
-            -f "$fasta" \\
-            -o "${fasta.getSimpleName()}.filt.json" \\
-            ${force} 
+   filt_format_msa.py \\
+        --protein_type "${meta.protein_type}" \\
+        --job_name "${meta.id}" \\
+        --fasta "$fasta" \\
+        --msa_cache_dir "${params.msa_cache_dir}" \\
+        ${force} 
     """
 }
 
 process RUN_MSA {
-    queue 'compute'
-    cpus '8'
+    label "alphafold3_msa"
+
     memory { "${ Math.min(512, 64 * Math.pow(2, task.attempt - 1)) }GB" }
-    executor "slurm"
-    clusterOptions '--time=8:00:00'
     errorStrategy { sleep(Math.pow(2, task.attempt) * 200 as long); return 'retry' }
     maxRetries 5
+
+    storeDir "${params.msa_cache_dir}/${meta.protein_type}"
+
     tag "${meta.protein_type}-${meta.id}"
 
     input:
     tuple val(meta), path(json)
 
     output:
-    tuple val(meta), path("*/*.json")
+    tuple val(meta), path("${meta.id}.json")
 
     script:
     """
-    module load singularity
+    /app/alphafold/run_alphafold.py \\
+        --json_path=$json \\
+        --model_dir=${params.af3_model_dir} \\
+        --db_dir=${params.af3_db_dir} \\
+        --output_dir=. \\
+        --norun_inference
 
-    # some MSAs are so large they overrun the tmpdir on the compute node (which is approx 175 GB)
-    export SINGULARITYENV_TMPDIR=${params.msa_tmpdir}
-
-    singularity exec \\
-        -B /home,/scratch,/tgen_labs,/ref_genomes \\
-        --cleanenv \\
-        /tgen_labs/altin/alphafold3/containers/alphafold_3.0.1.sif \\
-        python /app/alphafold/run_alphafold.py \\
-            --json_path=$json \\
-            --model_dir=/ref_genomes/alphafold/alphafold3/models \\
-            --db_dir=/ref_genomes/alphafold/alphafold3/ \\
-            --output_dir=. \\
-            --norun_inference
+    mv ${meta.id}/${meta.id}_data.json ${meta.id}.json
     """
 }
 
 
 
-process STORE_MSA {
-    label "process_local"
-    errorStrategy { sleep(Math.pow(2, task.attempt) * 200 as long); return 'retry' }
-    maxRetries 5
-    tag "${meta.protein_type}-${meta.id}"
+// process STORE_MSA {
+//     label "process_local"
+//     errorStrategy { sleep(Math.pow(2, task.attempt) * 200 as long); return 'retry' }
+//     maxRetries 5
+//     tag "${meta.protein_type}-${meta.id}"
     
-    input:
-    tuple val(meta), path(json)
+//     input:
+//     tuple val(meta), path(json)
 
-    output:
-    tuple val(meta), path(json)
+//     output:
+//     tuple val(meta), path(json)
 
-    script:
-    """
-    module load singularity
+//     script:
+//     """
+//     module load singularity
 
-    export SINGULARITYENV_VAST_S3_ACCESS_KEY_ID="\$VAST_S3_ACCESS_KEY_ID"
-    export SINGULARITYENV_VAST_S3_SECRET_ACCESS_KEY="\$VAST_S3_SECRET_ACCESS_KEY"
+//     export SINGULARITYENV_VAST_S3_ACCESS_KEY_ID="\$VAST_S3_ACCESS_KEY_ID"
+//     export SINGULARITYENV_VAST_S3_SECRET_ACCESS_KEY="\$VAST_S3_SECRET_ACCESS_KEY"
     
-    singularity exec --nv \\
-        -B /home,/scratch,/tgen_labs --cleanenv \\
-        /tgen_labs/altin/alphafold3/containers/msa-db.sif \\
-        python ${moduleDir}/resources/usr/bin/store_msa.py \\
-            -t "${meta.protein_type}" \\
-            -j "$json"
-    """
-}
+//     singularity exec --nv \\
+//         -B /home,/scratch,/tgen_labs --cleanenv \\
+//         /tgen_labs/altin/alphafold3/containers/msa-db.sif \\
+//         python ${moduleDir}/resources/usr/bin/store_msa.py \\
+//             -t "${meta.protein_type}" \\
+//             -j "$json"
+//     """
+// }
 
 
 
 process COMPOSE_INFERENCE_JSON {
     label "process_local"
-    errorStrategy { sleep(Math.pow(2, task.attempt) * 200 as long); return 'retry' }
-    maxRetries 5
+    conda "${moduleDir}/environment.yaml"
+    // errorStrategy { sleep(Math.pow(2, task.attempt) * 200 as long); return 'retry' }
+    // maxRetries 5
     tag "${meta.id}"
 
     input:
     tuple val(meta), path(fasta)
+    // val because we dont want this to be resolved to relative
+    val(inf_dir)
 
     output:
     tuple val(meta), path("*.json"), optional: true
@@ -191,72 +174,73 @@ process COMPOSE_INFERENCE_JSON {
     script:
     def seeds = params.seeds ? "--seeds ${params.seeds}" : ''
     def segids = (meta.containsKey('segids')) ? "--segids ${meta.segids.join(',')}" : ''
-    def check_inf_exists = params.check_inf_exists ? """
-    if [ -d "${params.outdir}/inference/${meta.id}" ]; then
-        echo "Skipping ${meta.id}"
-        exit 0
-    fi
-    """ : ''
-    def skip_msa_arg = (params.skip_msa != null) ? "--skip_msa ${params.skip_msa}" : ''
+    def check_inf_exists = params.check_inf_exists ? "--check_inf_exists" : ''
+    def skip_msa_arg = meta.containsKey("skip_msa") ? "--skip_msa ${meta.skip_msa.join(',')}" : ''
     """
-    module load singularity
-
-    $check_inf_exists
-
-    export SINGULARITYENV_VAST_S3_ACCESS_KEY_ID="\$VAST_S3_ACCESS_KEY_ID"
-    export SINGULARITYENV_VAST_S3_SECRET_ACCESS_KEY="\$VAST_S3_SECRET_ACCESS_KEY"
-
-    singularity exec \\
-        -B /home,/scratch,/tgen_labs --cleanenv \\
-        /tgen_labs/altin/alphafold3/containers/msa-db.sif \\
-        python ${moduleDir}/resources/usr/bin/compose_inference_JSON.py \\
-            -jn "${meta.id}" \\
-            -f "$fasta" \\
-            -pt "${meta.protein_types.join(',')}" \\
-            ${segids} \\
-            ${skip_msa_arg} \\
-            ${seeds} 
+    
+    compose_inference_JSON.py \\
+        --job_name "${meta.id}" \\
+        --fasta "$fasta" \\
+        --protein_types "${meta.protein_types.join(',')}" \\
+        --msa_cache_dir "${params.msa_cache_dir}" \\
+        --inf_dir "$inf_dir" \\
+        ${segids} \\
+        ${skip_msa_arg} \\
+        ${seeds} \\
+        ${check_inf_exists}
     """
  }
 
 process BATCHED_INFERENCE {
-    queue 'gpu-a100'
-    cpus '8'
-    clusterOptions '--nodes=1 --ntasks=1 --gres=gpu:1 --time=24:00:00'
-    memory '64GB'
-    executor "slurm"
     tag "batched_inference"
-
-    if (params.compress_inf == false) {
-        publishDir "${params.outdir}", mode: 'copy'
-    }
+    label "alphafold3_inference"
+    // if (params.compress_inf == false) {
+    //     publishDir "${params.outdir}", mode: 'copy'
+    // }
 
     input:
     tuple val(batched_meta), path(batched_json)
 
     output:
-    tuple val(batched_meta), path("inference/*")
+    tuple val(batched_meta), path("*")
+
     script:
+    def save_embeddings = params.save_embeddings ? "--save_embeddings" : ''
     """
-    module load singularity
+    python /app/alphafold/run_alphafold.py \\
+        --input_dir=. \\
+        --model_dir=$params.af3_model_dir \\
+        --db_dir=$params.af3_db_dir \\
+        --output_dir=. \\
+        --norun_data_pipeline \\
+        ${save_embeddings} \\
+        --num_diffusion_samples=1
+    """
+}
 
-    mkdir -p tmp
 
-    for f in ${batched_json}; do
-         cp \$f tmp/
-    done
+process INFERENCE {
+    tag "inference"
+    label "alphafold3_inference"
 
-    singularity exec --nv \\
-        -B /home,/scratch,/tgen_labs,/ref_genomes --cleanenv \\
-        /tgen_labs/altin/alphafold3/containers/alphafold_3.0.1.sif \\
-        python /app/alphafold/run_alphafold.py \\
-            --input_dir=tmp \\
-            --model_dir=/ref_genomes/alphafold/alphafold3/models \\
-            --db_dir=/ref_genomes/alphafold/alphafold3/ \\
-            --output_dir=inference \\
-            --norun_data_pipeline \\
-            --num_diffusion_samples=1
-        """
+    input:
+    tuple val(meta), path(json)
+
+    output:
+    tuple val(meta), path("*")
+
+    script:
+    def save_embeddings = params.save_embeddings ? "--save_embeddings" : ''
+    """
+    python /app/alphafold/run_alphafold.py \\
+        --json_path=$json \\
+        --model_dir=$params.af3_model_dir \\
+        --db_dir=$params.af3_db_dir \\
+        --output_dir=. \\
+        --norun_data_pipeline \\
+        ${save_embeddings} \\
+        --num_diffusion_samples=1
+    """
 }
 
 process CLEAN_INFERENCE_DIR {
@@ -264,26 +248,19 @@ process CLEAN_INFERENCE_DIR {
     tag "clean_inference"
     errorStrategy { sleep(Math.pow(2, task.attempt) * 200 as long); return 'retry' }
     maxRetries 5
-    publishDir "${params.outdir}", mode: 'copy'
+    conda "${moduleDir}/environment.yaml"
+    
+    // publishDir "${params.outdir}", mode: 'copy'
 
     input:
     tuple val(meta), path(inference_dir)
 
     output:
-    tuple val(meta), path("inference/*")
+    tuple val(meta), path("*", includeInputs: true)
 
     script:
     """
-    module load singularity
-
-    mkdir -p inference
-
-    singularity exec \\
-        -B /home,/scratch,/tgen_labs --cleanenv \\
-        /tgen_labs/altin/alphafold3/containers/af3-models.sif \\
-        python ${moduleDir}/resources/usr/bin/clean_inference_dir.py \\
-            -i $inference_dir \\
-            -o inference
+    clean_inference_dir.py \\
+        -i $inference_dir
     """
 }
-

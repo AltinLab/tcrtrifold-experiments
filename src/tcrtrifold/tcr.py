@@ -2,6 +2,23 @@ import anarci
 import numpy as np
 
 
+def shorten_both_tcrs(row):
+    row["tcr_1_seq"] = shorten_tcr_to_vregion(
+        row["tcr_1_seq"], row["tcr_1_chain"], row["tcr_1_species"], strict=False
+    )
+    row["tcr_2_seq"] = shorten_tcr_to_vregion(
+        row["tcr_2_seq"], row["tcr_2_chain"], row["tcr_2_species"], strict=False
+    )
+    return row
+
+
+def shorten_tcr_to_vregion(tcr_seq, tcr_chain, species, strict=False):
+
+    res_slice, _, _ = annotate_tcr(
+        tcr_seq, np.arange(len(tcr_seq)), tcr_chain, species, strict=strict
+    )
+
+    return "".join(np.array(list(tcr_seq))[res_slice])
 
 
 def extract_tcrdist_cols(row):

@@ -7,7 +7,7 @@
         "tgen": {
           "af3": {
             "branch": "main",
-            "git_sha": "254de8cb60063ca7788aae1ba4772f9d8d730b60",
+            "git_sha": "1b1a6199167ad5d4902e5dbfc160bda0c48d94f4",
             "installed_by": ["modules"]
           }
         }
@@ -16,7 +16,7 @@
         "tgen": {
           "af3": {
             "branch": "main",
-            "git_sha": "79d2ddac67f8ed24017b5b7a64766cb56e01c39e",
+            "git_sha": "1b1a6199167ad5d4902e5dbfc160bda0c48d94f4",
             "installed_by": ["subworkflows"]
           }
         }
