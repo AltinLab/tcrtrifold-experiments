@@ -11,16 +11,19 @@ from scipy.stats import pearsonr, spearmanr
 def antigen_raw_score_auc(
     triad_dataset,
     featname,
+    grouping_cols=FORMAT_ANTIGEN_COLS,
 ):
 
-    antigens = triad_dataset.select(FORMAT_ANTIGEN_COLS).unique()
+    antigens = triad_dataset.select(grouping_cols).unique()
 
     out_df = []
 
     for row in antigens.iter_rows(named=True):
         antigen = pl.DataFrame([row]).select(pl.exclude("job_name"))
         aucs = []
-        focal_antigen_triads = triad_dataset.join(antigen, on=FORMAT_ANTIGEN_COLS)
+        focal_antigen_triads = triad_dataset.join(
+            antigen, on=grouping_cols, nulls_equal=True
+        )
 
         new_row = row.copy()
 
@@ -28,7 +31,7 @@ def antigen_raw_score_auc(
 
         fpr, tpr, threshold = metrics.roc_curve(dat[:, 1], dat[:, 0])
         roc_auc = metrics.auc(fpr, tpr)
-        new_row["auc"] = roc_auc
+        new_row["roc_auc"] = roc_auc
         new_row["fpr"] = fpr.tolist()
         new_row["tpr"] = tpr.tolist()
 
@@ -162,16 +165,17 @@ def within_antigen_auc(
 
 def antigen_cross_validation_auc(
     triad_df,
-    antigen_df,
     featnames,
     model_class,
     model_kwargs,
     balanced_ratio=False,
 ):
 
+    antigens = triad_df.select(FORMAT_ANTIGEN_COLS).unique()
+
     out_df = []
 
-    for row in antigen_df.iter_rows(named=True):
+    for row in antigens.iter_rows(named=True):
         antigen = pl.DataFrame([row]).select(pl.exclude("job_name"))
         focal_antigen_triads = triad_df.join(antigen, on=FORMAT_ANTIGEN_COLS)
         non_focal_antigen_triads = triad_df.join(

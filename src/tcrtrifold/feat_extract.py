@@ -19,41 +19,183 @@ import scipy
 from itertools import repeat
 
 
-# TCRDOCK_COLS = [
-#     "d",
-#     "torsion",
-#     "tcr_unit_y",
-#     "tcr_unit_z",
-#     "mhc_unit_y",
-#     "mhc_unit_z",
-# ]
+def extract_mean_tcr_pmhc_pae(row, inf_parent_dir, inference_type):
+    """
+    Mean PAE (and contact prob) between:
+
+    - v region of tcr and peptide
+    - v region of tcr and MHC
+    - reciprocals of both (non-symmetric)
+
+    """
+    if inference_type == "af3":
+        output = AF3Output(inf_parent_dir / row["job_name"])
+    elif inference_type == "boltz":
+        output = BoltzOutput(inf_parent_dir / row["job_name"])
+
+    u = output.get_mda_universe()
+    peptide_res = u.select_atoms("segid A").residues
+    if row["mhc_class"] == "II":
+        mhc_residx = u.select_atoms("segid B or segid C").residues.resindices
+    else:
+        mhc_residx = u.select_atoms("segid B").residues.resindices
+
+    tcr_1_res = u.select_atoms("segid D").residues
+
+    tcr_1_residx, _, _ = annotate_tcr(
+        tcr_1_res.sequence(format="string"), tcr_1_res.resindices, "alpha", "human"
+    )
+
+    tcr_2_res = u.select_atoms("segid E").residues
+
+    tcr_2_residx, _, _ = annotate_tcr(
+        tcr_2_res.sequence(format="string"), tcr_2_res.resindices, "beta", "human"
+    )
+
+    tcr_residx = np.concatenate([tcr_1_residx, tcr_2_residx])
+
+    pae = output.get_pae_ndarr()
+    contact_probs = output.get_contact_prob_ndarr()
+
+    for arr, name in zip([pae, contact_probs], ["pae", "contact_prob"]):
+
+        row[f"mean_p_tcr_{name}"] = np.mean(arr[peptide_res.resindices][:, tcr_residx])
+        row[f"mean_tcr_p_{name}"] = np.mean(arr[tcr_residx][:, peptide_res.resindices])
+
+        row[f"mean_mhc_tcr_{name}"] = np.mean(arr[mhc_residx][:, tcr_residx])
+        row[f"mean_tcr_mhc_{name}"] = np.mean(arr[tcr_residx][:, mhc_residx])
+
+    return row
 
 
-# def tcrdock_info_as_feat(row, dockinfo_path, fname_col="job_name"):
-#     if not (dockinfo_path / (row[fname_col] + ".tsv")).exists():
-#         for key in TCRDOCK_COLS:
-#             row[key] = None
-#         return row
+def extract_triad_interface_pae(row, inf_parent_dir, inference_type):
+    """
+    Mean PAE (and contact probability) between:
 
-#     pred_dockinfo = pl.read_csv(
-#         dockinfo_path / (row[fname_col] + ".tsv"), separator="\t"
-#     )
+    - peptide vs TCR res within 8 angstroms peptide
+    - peptide and mhc res within 8 angstroms peptide vs TCR res within 8 angstroms peptide
 
-#     pred_dockinfo = pred_dockinfo.to_dicts()[0]
+    and reciprocal of each
 
-#     for key in TCRDOCK_COLS:
-#         row[key] = pred_dockinfo[key]
+    """
+    if inference_type == "af3":
+        output = AF3Output(inf_parent_dir / row["job_name"])
+    elif inference_type == "boltz":
+        output = BoltzOutput(inf_parent_dir / row["job_name"])
+
+    u = output.get_mda_universe()
+    pae = output.get_pae_ndarr()
+    contact_probs = output.get_contact_prob_ndarr()
+
+    peptide_residx = u.select_atoms("segid A").residues.resindices
+
+    for arr, name in zip([pae, contact_probs], ["pae", "contact_prob"]):
+        # max PAE is 31
+        # https://github.com/google-deepmind/alphafold3/blob/2e2ffc10ab13b1d6f0234d0007488c4a3dedf3e6/src/alphafold3/model/network/confidence_head.py#L33
+        tcr_near_pep = u.select_atoms(
+            "(segid D or segid E) and around 8 segid A"
+        ).residues.resindices
+
+        if len(tcr_near_pep) == 0:
+            mean_p_tcr_interface_score = 31.0
+            mean_tcr_p_interface_score = 31.0
+
+        else:
+            mean_p_tcr_interface_score = arr[peptide_residx][:, tcr_near_pep].mean()
+            mean_tcr_p_interface_score = arr[tcr_near_pep][:, peptide_residx].mean()
+
+        if row["mhc_class"] == "II":
+            selection_suffix = " or segid C"
+        else:
+            selection_suffix = ""
+
+        # tcr res within 5 angstroms of peptide, mhc:
+        # pMHC res within 5 angstroms of peptide
+        tcr_near_pmhc = u.select_atoms(
+            f"(segid D or segid E) and around 8 (segid A or segid B{selection_suffix})"
+        ).residues.resindices
+
+        if len(tcr_near_pmhc) == 0:
+            mean_tcr_pmhc_interface_score = 31.0
+            mean_pmhc_tcr_interface_score = 31.0
+
+        else:
+            mean_tcr_pmhc_interface_score = arr[tcr_near_pmhc][
+                :,
+                u.select_atoms(
+                    f"segid A or ((segid B{selection_suffix}) and around 8 segid A)"
+                ).residues.resindices,
+            ].mean()
+            mean_pmhc_tcr_interface_score = arr[
+                u.select_atoms(
+                    f"segid A or ((segid B{selection_suffix}) and around 8 segid A)"
+                ).residues.resindices,
+            ][:, tcr_near_pmhc].mean()
+
+        row[f"mean_p_tcr_interface_{name}"] = mean_p_tcr_interface_score
+        row[f"mean_tcr_p_interface_{name}"] = mean_tcr_p_interface_score
+
+        row[f"mean_tcr_pmhc_interface_{name}"] = mean_tcr_pmhc_interface_score
+        row[f"mean_pmhc_tcr_interface_{name}"] = mean_pmhc_tcr_interface_score
+
+    return row
+
+
+# def extract_mean_tcr_pmhc_pae_class_II(row, inf_parent_dir, inference_type):
+#     """ """
+#     if inference_type == "af3":
+#         output = AF3Output(inf_parent_dir / row["job_name"])
+#     elif inference_type == "boltz":
+#         output = BoltzOutput(inf_parent_dir / row["job_name"])
+
+#     u = output.get_mda_universe()
+
+#     peptide_res = u.select_atoms("segid A").residues
+
+#     if row["mhc_class"] != "II":
+#         raise ValueError
+
+#     mhc_residx = u.select_atoms("segid B or segid C").residues.resindices
+
+#     tcr_residx = u.select_atoms("segid D or segid E").residues.resindices
+
+#     pae = output.get_pae_ndarr()
+
+#     if len(peptide_res) <= 9:
+#         row["mean_p_tcr_pae_II"] = (
+#             np.mean(pae[peptide_res.resindices][:, tcr_residx]) / 100
+#         )
+#         row["mean_tcr_p_pae_II"] = (
+#             np.mean(pae[tcr_residx][:, peptide_res.resindices]) / 100
+#         )
+#     else:
+
+#         p_tcr_window_means = []
+#         tcr_p_window_means = []
+#         for i in range(len(peptide_res) - 8):
+#             p_tcr_window_means.append(
+#                 (np.mean(pae[peptide_res[i : i + 9].resindices][:, tcr_residx]) / 100)
+#             )
+#             tcr_p_window_means.append(
+#                 (np.mean(pae[tcr_residx][:, peptide_res[i : i + 9].resindices]) / 100)
+#             )
+#         row["mean_p_tcr_pae_II"] = gmean(p_tcr_window_means)
+#         row["mean_tcr_p_pae_II"] = gmean(tcr_p_window_means)
+
+#     # mean_interface_pae = np.mean(pae[pmhc_residx][:, tcr_residx])
+
+#     row["mean_mhc_tcr_pae_II"] = np.mean(pae[mhc_residx][:, tcr_residx])
+#     row["mean_tcr_mhc_pae_II"] = np.mean(pae[tcr_residx][:, mhc_residx])
 
 #     return row
 
 
-def extract_mean_tcr_pmhc_pae(row, inf_parent_dir, inference_type, **kwargs):
+def extract_mean_peptide_mhc_pae(row, inf_parent_dir, inference_type):
     if inference_type == "af3":
-        output = AF3Output(inf_parent_dir / row["job_name"], **kwargs)
+        output = AF3Output(inf_parent_dir / row["job_name"])
     elif inference_type == "boltz":
-        output = BoltzOutput(inf_parent_dir / row["job_name"], **kwargs)
-
-    u = output.get_mda_universe(**kwargs)
+        output = BoltzOutput(inf_parent_dir / row["job_name"])
+    u = output.get_mda_universe()
 
     peptide_res = u.select_atoms("segid A").residues
 
@@ -62,107 +204,46 @@ def extract_mean_tcr_pmhc_pae(row, inf_parent_dir, inference_type, **kwargs):
     else:
         mhc_residx = u.select_atoms("segid B").residues.resindices
 
-    tcr_residx = u.select_atoms("segid D or segid E").residues.resindices
+    pae = output.get_pae_ndarr()
 
-    pae = output.get_pae_ndarr(**kwargs)
-
-    row["mean_p_tcr_pae"] = np.mean(pae[peptide_res.resindices][:, tcr_residx]) / 100
-    row["mean_tcr_p_pae"] = np.mean(pae[tcr_residx][:, peptide_res.resindices]) / 100
-
-    # mean_interface_pae = np.mean(pae[pmhc_residx][:, tcr_residx])
-
-    row["mean_mhc_tcr_pae"] = np.mean(pae[mhc_residx][:, tcr_residx])
-    row["mean_tcr_mhc_pae"] = np.mean(pae[tcr_residx][:, mhc_residx])
+    row["mean_p_mhc_pae"] = np.mean(pae[peptide_res.resindices][:, mhc_residx])
+    row["mean_mhc_p_pae"] = np.mean(pae[mhc_residx][:, peptide_res.resindices])
 
     return row
 
 
-def extract_mean_tcr_pmhc_pae_class_II(row, inf_parent_dir, inference_type, **kwargs):
+def extract_pmhc_interface_pae(row, inf_parent_dir, inference_type):
     if inference_type == "af3":
-        output = AF3Output(inf_parent_dir / row["job_name"], **kwargs)
+        output = AF3Output(inf_parent_dir / row["job_name"])
     elif inference_type == "boltz":
-        output = BoltzOutput(inf_parent_dir / row["job_name"], **kwargs)
+        output = BoltzOutput(inf_parent_dir / row["job_name"])
+    u = output.get_mda_universe()
+    pae = output.get_pae_ndarr()
+    contact_probs = output.get_contact_prob_ndarr()
 
-    u = output.get_mda_universe(**kwargs)
-
-    peptide_res = u.select_atoms("segid A").residues
-
-    if row["mhc_class"] != "II":
-        raise ValueError
-
-    mhc_residx = u.select_atoms("segid B or segid C").residues.resindices
-
-    tcr_residx = u.select_atoms("segid D or segid E").residues.resindices
-
-    pae = output.get_pae_ndarr(**kwargs)
-
-    if len(peptide_res) <= 9:
-        row["mean_p_tcr_pae_II"] = (
-            np.mean(pae[peptide_res.resindices][:, tcr_residx]) / 100
-        )
-        row["mean_tcr_p_pae_II"] = (
-            np.mean(pae[tcr_residx][:, peptide_res.resindices]) / 100
-        )
-    else:
-
-        p_tcr_window_means = []
-        tcr_p_window_means = []
-        for i in range(len(peptide_res) - 8):
-            p_tcr_window_means.append(
-                (np.mean(pae[peptide_res[i : i + 9].resindices][:, tcr_residx]) / 100)
-            )
-            tcr_p_window_means.append(
-                (np.mean(pae[tcr_residx][:, peptide_res[i : i + 9].resindices]) / 100)
-            )
-        row["mean_p_tcr_pae_II"] = gmean(p_tcr_window_means)
-        row["mean_tcr_p_pae_II"] = gmean(tcr_p_window_means)
-
-    # mean_interface_pae = np.mean(pae[pmhc_residx][:, tcr_residx])
-
-    row["mean_mhc_tcr_pae_II"] = np.mean(pae[mhc_residx][:, tcr_residx])
-    row["mean_tcr_mhc_pae_II"] = np.mean(pae[tcr_residx][:, mhc_residx])
-
-    return row
-
-
-def extract_mean_peptide_mhc_pae(row, inf_parent_dir, inference_type, **kwargs):
-    if inference_type == "af3":
-        output = AF3Output(inf_parent_dir / row["job_name"], **kwargs)
-    elif inference_type == "boltz":
-        output = BoltzOutput(inf_parent_dir / row["job_name"], **kwargs)
-    u = output.get_mda_universe(**kwargs)
-
-    peptide_res = u.select_atoms("segid A").residues
+    peptide_residx = u.select_atoms("segid A").residues.resindices
 
     if row["mhc_class"] == "II":
-        mhc_residx = u.select_atoms("segid B or segid C").residues.resindices
+        selection_suffix = " or segid C"
     else:
-        mhc_residx = u.select_atoms("segid B").residues.resindices
+        selection_suffix = ""
 
-    pae = output.get_pae_ndarr(**kwargs)
+    mhc_near_pep = u.select_atoms(
+        f"(segid B{selection_suffix}) and around 8 segid A"
+    ).residues.resindices
 
-    if row["mhc_class"] == "II":
-        if len(peptide_res) <= 9:
-            row["mean_p_mhc_pae"] = (
-                np.mean(pae[peptide_res.resindices][:, mhc_residx]) / 100
-            )
+    for arr, name in zip([pae, contact_probs], ["pae", "contact_prob"]):
+
+        if len(mhc_near_pep) == 0:
+            mean_mhc_p_interface_score = 31.0
+            mean_p_mhc_interface_score = 31.0
+
         else:
+            mean_mhc_p_interface_score = arr[mhc_near_pep][:, peptide_residx].mean()
+            mean_p_mhc_interface_score = arr[peptide_residx][:, mhc_near_pep].mean()
 
-            p_mhc_window_means = []
-            for i in range(len(peptide_res) - 8):
-                p_mhc_window_means.append(
-                    (
-                        np.mean(pae[peptide_res[i : i + 9].resindices][:, mhc_residx])
-                        / 100
-                    )
-                )
-
-            row["mean_p_mhc_pae"] = gmean(p_mhc_window_means)
-
-    else:
-        row["mean_p_mhc_pae"] = (
-            np.mean(pae[peptide_res.resindices][:, mhc_residx]) / 100
-        )
+        row[f"mean_mhc_p_interface_{name}"] = mean_mhc_p_interface_score
+        row[f"mean_p_mhc_interface_{name}"] = mean_p_mhc_interface_score
 
     return row
 
@@ -207,72 +288,78 @@ def extract_min_tcr_pmhc_pae(row, af3_parent_dir, **kwargs):
     return row
 
 
-# def extract_summary_metrics(row, af3_parent_dir, **kwargs):
-#     af3_output = AF3Output(af3_parent_dir / row["job_name"], **kwargs)
+def extract_summary_metrics(row, inf_parent_dir, inference_type, **kwargs):
+    if inference_type == "af3":
+        output = AF3Output(inf_parent_dir / row["job_name"], **kwargs)
+        small_arrs = [
+            "chain_pair_pae_min",
+            "chain_pair_iptm",
+            "chain_ptm",
+            "chain_iptm",
+        ]
+    elif inference_type == "boltz":
+        output = BoltzOutput(inf_parent_dir / row["job_name"], **kwargs)
 
-#     summ = af3_output.get_summary_metrics(**kwargs)
+    summ = output.get_summary_metrics(**kwargs)
 
-#     # scalar_dict = {
-#     #     "ptm": summ["ptm"],
-#     #     "iptm": summ["iptm"],
-#     #     "fraction_disordered": summ["fraction_disordered"],
-#     #     "has_clash": summ["has_clash"],
-#     #     "ranking_score": summ["ranking_score"],
-#     # }
+    # convert to list of lists
+    if inference_type == "af3":
+        for arr in small_arrs:
+            summ[arr] = summ[arr].tolist()
 
-#     small_arrs = [
-#         "chain_pair_pae_min",
-#         "chain_pair_iptm",
-#         "chain_ptm",
-#         "chain_iptm",
-#     ]
-
-#     # convert to list of lists
-#     for arr in small_arrs:
-#         summ[arr] = summ[arr].tolist()
-
-#     row.update(summ)
-
-#     # schema_overrides = {
-#     #     "chain_pair_pae_min": pl.List(pl.List(pl.Float32)),
-#     #     "chain_pair_iptm": pl.List(pl.List(pl.Float32)),
-#     #     "chain_ptm": pl.List(pl.Float32),
-#     #     "chain_iptm": pl.List(pl.Float32),
-#     # }
-
-#     return row
-
-
-def extract_peptide_pLDDT(row, af3_parent_dir):
-    af3_output = AF3Output(af3_parent_dir / row["job_name"])
-    u_af3 = af3_output.get_mda_universe()
-
-    peptide_sel = u_af3.select_atoms("segid A").residues
-
-    if row["mhc_class"] == "II":
-
-        if len(peptide_sel) <= 9:
-            row["peptide_mean_pLDDT"] = 1 - (peptide_sel.atoms.tempfactors.mean() / 100)
-
-        else:
-
-            window_means = []
-            for i in range(len(peptide_sel) - 8):
-                window_means.append(
-                    1 - (peptide_sel[i : i + 9].atoms.tempfactors.mean() / 100)
-                )
-
-            row["peptide_mean_pLDDT"] = gmean(window_means)
-
-    else:
-        row["peptide_mean_pLDDT"] = 1 - (peptide_sel.atoms.tempfactors.mean() / 100)
+    row.update(summ)
 
     return row
 
 
-def extract_cdr_pLDDT(row, af3_parent_dir):
-    af3_output = AF3Output(af3_parent_dir / row["job_name"])
-    u_af3 = af3_output.get_mda_universe()
+def extract_peptide_pLDDT(row, inf_parent_dir, inference_type, **kwargs):
+    if inference_type == "af3":
+        output = AF3Output(inf_parent_dir / row["job_name"], **kwargs)
+    elif inference_type == "boltz":
+        output = BoltzOutput(inf_parent_dir / row["job_name"], **kwargs)
+    u_af3 = output.get_mda_universe(**kwargs)
+
+    peptide_sel = u_af3.select_atoms("segid A").residues
+
+    row["peptide_mean_pLDDT"] = peptide_sel.atoms.tempfactors.mean()
+
+    return row
+
+
+def extract_peptide_pLDDT_class_II(row, inf_parent_dir, inference_type):
+    if inference_type == "af3":
+        output = AF3Output(inf_parent_dir / row["job_name"])
+    elif inference_type == "boltz":
+        output = BoltzOutput(inf_parent_dir / row["job_name"])
+    u_af3 = output.get_mda_universe()
+    if row["mhc_class"] != "II":
+        raise ValueError
+
+    peptide_sel = u_af3.select_atoms("segid A").residues
+
+    if len(peptide_sel) <= 9:
+        row["peptide_mean_pLDDT_II"] = peptide_sel.atoms.tempfactors.mean()
+
+    else:
+
+        window_means = []
+        for i in range(len(peptide_sel) - 8):
+            window_means.append(
+                1 - (peptide_sel[i : i + 9].atoms.tempfactors.mean() / 100)
+            )
+
+        row["peptide_mean_pLDDT_II"] = (1 - gmean(window_means)) * 100
+
+    return row
+
+
+def extract_cdr_pLDDT(row, inf_parent_dir, inference_type, **kwargs):
+    if inference_type == "af3":
+        output = AF3Output(inf_parent_dir / row["job_name"], **kwargs)
+    elif inference_type == "boltz":
+        output = BoltzOutput(inf_parent_dir / row["job_name"], **kwargs)
+    u_af3 = output.get_mda_universe(**kwargs)
+    all_plddt = []
 
     for segid, tcr_num in zip(["D", "E"], [1, 2]):
 
@@ -309,30 +396,31 @@ def extract_cdr_pLDDT(row, af3_parent_dir):
 
         row[f"tcr_{tcr_num}_cdr_3_mean_pLDDT"] = cdr_3_pLDDT.mean()
 
+        all_plddt.extend(
+            cdr_1_pLDDT.tolist()
+            + cdr_2_pLDDT.tolist()
+            + cdr_2_5_pLDDT.tolist()
+            + cdr_3_pLDDT.tolist()
+        )
+
+    row["tcr_cdrs_mean_pLDDT"] = np.mean(all_plddt)
+
     return row
 
 
-def extract_mhc_helix_pLDDT(row, af3_parent_dir):
-    af3_output = AF3Output(af3_parent_dir / row["job_name"])
-    u_af3 = af3_output.get_mda_universe()
+def extract_mhc_helix_pLDDT(row, inf_parent_dir, inference_type):
+    if inference_type == "af3":
+        output = AF3Output(inf_parent_dir / row["job_name"])
+    elif inference_type == "boltz":
+        output = BoltzOutput(inf_parent_dir / row["job_name"])
+    u_af3 = output.get_mda_universe()
 
     if row["mhc_class"] == "I":
-        mhc_atoms = u_af3.select_atoms("segid B")
+        mhc_atoms = u_af3.select_atoms("segid B").residues.atoms
     else:
-        mhc_atoms = u_af3.select_atoms("segid B or segid C")
+        mhc_atoms = u_af3.select_atoms("(segid B or segid C)").residues.atoms
 
-    raw_helix_ix = raw_helix_indices(mhc_atoms)
-
-    helix_resindices = anneal_helix_indices(raw_helix_ix)
-
-    if len(helix_resindices) != 2:
-        raise ValueError(
-            f"Expected 2 helices for MHC-{row['mhc_class']} chain, "
-            f"got {len(helix_resindices)}"
-        )
-
-    # flatten list of lists
-    helix_resindices = helix_resindices[0] + helix_resindices[1]
+    helix_resindices = raw_helix_indices(mhc_atoms)
 
     helix_pLDDT = u_af3.residues[helix_resindices].atoms.tempfactors
 
@@ -341,14 +429,14 @@ def extract_mhc_helix_pLDDT(row, af3_parent_dir):
     return row
 
 
-def extract_num_contacts(row, inf_parent_dir, inference_type, **kwargs):
+def extract_num_contacts(row, inf_parent_dir, inference_type):
     if inference_type == "af3":
-        output = AF3Output(inf_parent_dir / row["job_name"], **kwargs)
+        output = AF3Output(inf_parent_dir / row["job_name"])
     elif inference_type == "boltz":
         raise ValueError
         # output = BoltzOutput(inf_parent_dir / row["job_name"], **kwargs)
 
-    u_af3 = output.get_mda_universe(**kwargs)
+    u_af3 = output.get_mda_universe()
 
     contact_probs = output.get_contact_prob_ndarr()
 
@@ -363,6 +451,7 @@ def extract_num_contacts(row, inf_parent_dir, inference_type, **kwargs):
 
         hla_a_res = helix_resindices[0]
         hla_b_res = helix_resindices[1]
+        all_hla_res = u_af3[raw_helix_ix].residues
 
     else:
         hla_a_res = anneal_helix_indices(
@@ -371,6 +460,8 @@ def extract_num_contacts(row, inf_parent_dir, inference_type, **kwargs):
         hla_b_res = anneal_helix_indices(
             raw_helix_indices(u_af3.select_atoms("segid C"))
         )[0]
+        raw_helix_ix = raw_helix_indices(u_af3.select_atoms("segid B or segid C"))
+        all_hla_res = u_af3[raw_helix_ix].residues
 
     # first, extract broad summary contact metrics
     peptide_sel = u_af3.select_atoms("segid A").residues
@@ -378,12 +469,14 @@ def extract_num_contacts(row, inf_parent_dir, inference_type, **kwargs):
     tcr_res = u_af3.select_atoms("segid D or segid E").residues.resindices
 
     row["tcr_mhc_contacts"] = np.count_nonzero(
-        contact_probs[tcr_res][:, hla_a_res] > tcr_mhc_thresh
-    ) + np.count_nonzero(contact_probs[tcr_res][:, hla_b_res] > tcr_mhc_thresh)
+        contact_probs[tcr_res][:, all_hla_res] > tcr_mhc_thresh
+    )
+    row["tcr_mhc_contacts_arr"] = contact_probs[tcr_res][:, all_hla_res].tolist()
 
-    row["peptide_tcr_contacts"] = np.count_nonzero(
+    row["tcr_p_contacts"] = np.count_nonzero(
         contact_probs[tcr_res][:, peptide_res_all] > peptide_tcr_thresh
     )
+    row["tcr_p_contacts_arr"] = contact_probs[tcr_res][:, peptide_res_all].tolist()
 
     # find best 9-mer
     max_min = 0
@@ -458,70 +551,70 @@ def extract_num_contacts(row, inf_parent_dir, inference_type, **kwargs):
     return row
 
 
-def extract_imgt_correct_species(row, af3_parent_dir):
+# def extract_imgt_correct_species(row, af3_parent_dir):
 
-    for tcr_num in [1, 2]:
-        try:
-            annotate_tcr(
-                row[f"tcr_{tcr_num}_seq"],
-                # dummy arg
-                np.arange(len(row[f"tcr_{tcr_num}_seq"])),
-                row[f"tcr_{tcr_num}_chain"],
-                row[f"tcr_{tcr_num}_species"],
-                strict=True,
-            )
-        except ValueError as e:
-            row[f"tcr_{tcr_num}_species_correct"] = False
+#     for tcr_num in [1, 2]:
+#         try:
+#             annotate_tcr(
+#                 row[f"tcr_{tcr_num}_seq"],
+#                 # dummy arg
+#                 np.arange(len(row[f"tcr_{tcr_num}_seq"])),
+#                 row[f"tcr_{tcr_num}_chain"],
+#                 row[f"tcr_{tcr_num}_species"],
+#                 strict=True,
+#             )
+#         except ValueError as e:
+#             row[f"tcr_{tcr_num}_species_correct"] = False
 
-        else:
-            row[f"tcr_{tcr_num}_species_correct"] = True
+#         else:
+#             row[f"tcr_{tcr_num}_species_correct"] = True
 
-    return row
+#     return row
 
 
-def extract_tcr_pmhc_iptm_perseed(row, af3_parent_dir):
-    af3_output = AF3Output(af3_parent_dir / row["job_name"])
+# def extract_tcr_pmhc_iptm_perseed(row, af3_parent_dir):
+#     af3_output = AF3Output(af3_parent_dir / row["job_name"])
 
-    with af3_output._get_h5_handle() as hf:
-        ranking_score_np = hf["ranking_scores"]["ranking_score"][:]
-        seed_np = hf["ranking_scores"]["seed"][:]
+#     with af3_output._get_h5_handle() as hf:
+#         ranking_score_np = hf["ranking_scores"]["ranking_score"][:]
+#         seed_np = hf["ranking_scores"]["seed"][:]
 
-        ranking_argsort_desc = np.argsort(ranking_score_np)[::-1]
+#         ranking_argsort_desc = np.argsort(ranking_score_np)[::-1]
 
-        seeds_ranked = seed_np[ranking_argsort_desc].tolist()
+#         seeds_ranked = seed_np[ranking_argsort_desc].tolist()
 
-    seeds_rank_dict = {num: seeds_ranked.index(num) for num in range(1, 6)}
+#     seeds_rank_dict = {num: seeds_ranked.index(num) for num in range(1, 6)}
 
-    small_arrs = [
-        "chain_pair_pae_min",
-        "chain_pair_iptm",
-    ]
-    mhc_tcr_iptm_feats = []
-    p_tcr_iptm_feats = []
-    mhc_tcr_pae_feats = []
-    p_tcr_pae_feats = []
+#     small_arrs = [
+#         "chain_pair_pae_min",
+#         "chain_pair_iptm",
+#     ]
+#     mhc_tcr_iptm_feats = []
+#     p_tcr_iptm_feats = []
+#     mhc_tcr_pae_feats = []
+#     p_tcr_pae_feats = []
 
-    seeds_ran = []
-    # convert to list of lists
-    for seed in [1, 2, 3, 4, 5]:
-        seeds_ran.append(seed)
-        pl_index = 6
-        best_seed = None
-        for seed_ran in seeds_ran:
-            if seeds_rank_dict[seed_ran] < pl_index:
-                best_seed = seed_ran
-                pl_index = seeds_rank_dict[seed_ran]
+#     seeds_ran = []
+#     # convert to list of lists
+#     for seed in [1, 2, 3, 4, 5]:
+#         seeds_ran.append(seed)
+#         pl_index = 6
+#         best_seed = None
+#         for seed_ran in seeds_ran:
+#             if seeds_rank_dict[seed_ran] < pl_index:
+#                 best_seed = seed_ran
+#                 pl_index = seeds_rank_dict[seed_ran]
 
-        # now extract features for curr best seed
-        summ = af3_output.get_summary_metrics(seed=best_seed)
-        pae = summ["chain_pair_pae_min"]
-        iptm = summ["chain_pair_iptm"]
-        row["mhc_tcr_iptm_" + str(seed)] = np.mean(iptm[1:3, 3:5])
-        row["p_tcr_iptm_" + str(seed)] = np.mean(iptm[0, 3:5])
-        row["mhc_tcr_pae_" + str(seed)] = np.mean(pae[1:3, 3:5])
-        row["p_tcr_pae_" + str(seed)] = np.mean(pae[0, 3:5])
+#         # now extract features for curr best seed
+#         summ = af3_output.get_summary_metrics(seed=best_seed)
+#         pae = summ["chain_pair_pae_min"]
+#         iptm = summ["chain_pair_iptm"]
+#         row["mhc_tcr_iptm_" + str(seed)] = np.mean(iptm[1:3, 3:5])
+#         row["p_tcr_iptm_" + str(seed)] = np.mean(iptm[0, 3:5])
+#         row["mhc_tcr_pae_" + str(seed)] = np.mean(pae[1:3, 3:5])
+#         row["p_tcr_pae_" + str(seed)] = np.mean(pae[0, 3:5])
 
-    return row
+#     return row
 
 
 # def raw_helix_indices(sel):
@@ -557,320 +650,320 @@ def extract_tcr_pmhc_iptm_perseed(row, af3_parent_dir):
 #     return helices
 
 
-def transform_zero_one(df, featnames_dict):
-
-    featnames = list(featnames_dict.keys())
-    for feat, direct_relationship in featnames_dict.items():
+# def transform_zero_one(df, featnames_dict):
+
+#     featnames = list(featnames_dict.keys())
+#     for feat, direct_relationship in featnames_dict.items():
 
-        max_feat = df.select(pl.col(feat).max()).item()
-        min_feat = df.select(pl.col(feat).min()).item()
+#         max_feat = df.select(pl.col(feat).max()).item()
+#         min_feat = df.select(pl.col(feat).min()).item()
 
-        if direct_relationship == True:
-            df = df.with_columns(
-                ((pl.col(feat) - min_feat) / (max_feat - min_feat)).alias(feat)
-            )
+#         if direct_relationship == True:
+#             df = df.with_columns(
+#                 ((pl.col(feat) - min_feat) / (max_feat - min_feat)).alias(feat)
+#             )
 
-        elif direct_relationship == False:
+#         elif direct_relationship == False:
 
-            df = df.with_columns(
-                (1 - ((pl.col(feat) - min_feat) / (max_feat - min_feat))).alias(feat)
-            )
+#             df = df.with_columns(
+#                 (1 - ((pl.col(feat) - min_feat) / (max_feat - min_feat))).alias(feat)
+#             )
 
-    return df
+#     return df
 
 
-def effective_variance(df):
+# def effective_variance(df):
 
-    tmp_dfs = []
-    for antigen in df.select(FORMAT_ANTIGEN_COLS).unique().iter_rows(named=True):
-        focal_tcr_cognate = df.join(
-            pl.DataFrame(antigen), on=FORMAT_ANTIGEN_COLS
-        ).filter(pl.col("cognate"))
-        feats = cossin_embed(focal_tcr_cognate.select(TCRDOCK_COLS).to_numpy())
-        R = np.corrcoef(feats, rowvar=False)
+#     tmp_dfs = []
+#     for antigen in df.select(FORMAT_ANTIGEN_COLS).unique().iter_rows(named=True):
+#         focal_tcr_cognate = df.join(
+#             pl.DataFrame(antigen), on=FORMAT_ANTIGEN_COLS
+#         ).filter(pl.col("cognate"))
+#         feats = cossin_embed(focal_tcr_cognate.select(TCRDOCK_COLS).to_numpy())
+#         R = np.corrcoef(feats, rowvar=False)
 
-        eigs = np.linalg.eigvalsh(R)
-        gen_var = np.prod(eigs)
-
-        antigen_w_var = antigen.copy()
-        antigen_w_var["tot_var_cognate"] = np.sum(np.cov(feats, rowvar=False))
-
-        focal_tcr_noncognate = df.join(
-            pl.DataFrame(antigen), on=FORMAT_ANTIGEN_COLS
-        ).filter(~pl.col("cognate"))
-        feats = cossin_embed(focal_tcr_noncognate.select(TCRDOCK_COLS).to_numpy())
-        antigen_w_var["tot_var_noncognate"] = np.sum(np.cov(feats, rowvar=False))
-
-        tmp_dfs.append(pl.DataFrame(antigen_w_var))
-
-    return pl.concat(tmp_dfs)
-
-
-def geomean_combine_confidence(df, featnames_dict, featnames_ranges, list_cols=[]):
-    # carefully transform each feature so that its
-    # best (highest P(cognate)) value is 0 and its worst
-    # value is 1
-
-    # we will use the actual max and min ranges rather than
-    # observed ranges in the dataset
-    df_inv = df
+#         eigs = np.linalg.eigvalsh(R)
+#         gen_var = np.prod(eigs)
+
+#         antigen_w_var = antigen.copy()
+#         antigen_w_var["tot_var_cognate"] = np.sum(np.cov(feats, rowvar=False))
+
+#         focal_tcr_noncognate = df.join(
+#             pl.DataFrame(antigen), on=FORMAT_ANTIGEN_COLS
+#         ).filter(~pl.col("cognate"))
+#         feats = cossin_embed(focal_tcr_noncognate.select(TCRDOCK_COLS).to_numpy())
+#         antigen_w_var["tot_var_noncognate"] = np.sum(np.cov(feats, rowvar=False))
+
+#         tmp_dfs.append(pl.DataFrame(antigen_w_var))
+
+#     return pl.concat(tmp_dfs)
+
+
+# def geomean_combine_confidence(df, featnames_dict, featnames_ranges, list_cols=[]):
+#     # carefully transform each feature so that its
+#     # best (highest P(cognate)) value is 0 and its worst
+#     # value is 1
+
+#     # we will use the actual max and min ranges rather than
+#     # observed ranges in the dataset
+#     df_inv = df
 
-    for featname, rel in featnames_dict.items():
-        ra = featnames_ranges[featname]
+#     for featname, rel in featnames_dict.items():
+#         ra = featnames_ranges[featname]
 
-        # direct relationship, higher = better prediction
-        if rel:
-            # invert
-            df_inv = df_inv.with_columns(
-                (1 - (pl.col(featname) / ra[1])).alias(featname)
-            )
+#         # direct relationship, higher = better prediction
+#         if rel:
+#             # invert
+#             df_inv = df_inv.with_columns(
+#                 (1 - (pl.col(featname) / ra[1])).alias(featname)
+#             )
 
-        else:
-            df_inv = df_inv.with_columns((pl.col(featname) / ra[1]).alias(featname))
+#         else:
+#             df_inv = df_inv.with_columns((pl.col(featname) / ra[1]).alias(featname))
 
-    df_agg = df_inv.group_by("entity_id").agg(
-        [
-            pl.col(colname).first().alias(colname)
-            for colname in FORMAT_MHC_COLS
-            + FORMAT_TCR_COLS
-            + TCRDIST_COLS
-            + ["group"]
-            + ["cognate"]
-        ]
-        + [
-            pl.col(colname).drop_nulls().flatten().unique()
-            for colname in ["references", "assay_type", "receptor_id"]
-        ]
-        + [pl.col(colname) for colname in list_cols]
-        + [
-            # geometric mean
-            # then transform so higher = better
-            (1 - (pl.col(colname).log().mean().exp())).alias(colname)
-            for colname in featnames_dict.keys()
-        ]
-    )
+#     df_agg = df_inv.group_by("entity_id").agg(
+#         [
+#             pl.col(colname).first().alias(colname)
+#             for colname in FORMAT_MHC_COLS
+#             + FORMAT_TCR_COLS
+#             + TCRDIST_COLS
+#             + ["group"]
+#             + ["cognate"]
+#         ]
+#         + [
+#             pl.col(colname).drop_nulls().flatten().unique()
+#             for colname in ["references", "assay_type", "receptor_id"]
+#         ]
+#         + [pl.col(colname) for colname in list_cols]
+#         + [
+#             # geometric mean
+#             # then transform so higher = better
+#             (1 - (pl.col(colname).log().mean().exp())).alias(colname)
+#             for colname in featnames_dict.keys()
+#         ]
+#     )
 
-    return df_agg
+#     return df_agg
 
 
-def per_antigen_tcrdist_clust(df, use_provided_cdr=False):
+# def per_antigen_tcrdist_clust(df, use_provided_cdr=False):
 
-    df_by_antigen = df.partition_by(
-        FORMAT_ANTIGEN_COLS,
-    )
+#     df_by_antigen = df.partition_by(
+#         FORMAT_ANTIGEN_COLS,
+#     )
 
-    out_dfs = []
+#     out_dfs = []
 
-    for antigen_df in df_by_antigen:
+#     for antigen_df in df_by_antigen:
 
-        cdr_2_5_col = ["tcr_1_cdr_2_5", "tcr_2_cdr_2_5"] if use_provided_cdr else []
-        tcr_df = antigen_df.select(FORMAT_TCR_COLS + TCRDIST_COLS + cdr_2_5_col)
+#         cdr_2_5_col = ["tcr_1_cdr_2_5", "tcr_2_cdr_2_5"] if use_provided_cdr else []
+#         tcr_df = antigen_df.select(FORMAT_TCR_COLS + TCRDIST_COLS + cdr_2_5_col)
 
-        tcr_with_idx, pw_dist = pw_tcrdist(
-            tcr_df,
-            use_provided_cdr=use_provided_cdr,
-        )
+#         tcr_with_idx, pw_dist = pw_tcrdist(
+#             tcr_df,
+#             use_provided_cdr=use_provided_cdr,
+#         )
 
-        compressed = scipy.spatial.distance.squareform(pw_dist)
-        Z = scipy.cluster.hierarchy.linkage(
-            compressed,
-            method="complete",
-        )
+#         compressed = scipy.spatial.distance.squareform(pw_dist)
+#         Z = scipy.cluster.hierarchy.linkage(
+#             compressed,
+#             method="complete",
+#         )
 
-        clusters = scipy.cluster.hierarchy.fcluster(
-            Z,
-            t=120,
-            criterion="distance",
-        )
+#         clusters = scipy.cluster.hierarchy.fcluster(
+#             Z,
+#             t=120,
+#             criterion="distance",
+#         )
 
-        # add cluster labels to tcr_df
-        tcr_with_idx = tcr_with_idx.with_columns(pl.Series("cluster", clusters))
+#         # add cluster labels to tcr_df
+#         tcr_with_idx = tcr_with_idx.with_columns(pl.Series("cluster", clusters))
 
-        # add cluster labels to antigen_df
-        antigen_df_clust = antigen_df.join(
-            tcr_with_idx.select(FORMAT_TCR_COLS + TCRDIST_COLS + ["cluster"]),
-            on=FORMAT_TCR_COLS + TCRDIST_COLS,
-        )
+#         # add cluster labels to antigen_df
+#         antigen_df_clust = antigen_df.join(
+#             tcr_with_idx.select(FORMAT_TCR_COLS + TCRDIST_COLS + ["cluster"]),
+#             on=FORMAT_TCR_COLS + TCRDIST_COLS,
+#         )
 
-        # now rank clusters by size, with largest cluster first
-        cluster_sizes = (
-            antigen_df_clust.group_by("cluster")
-            .len()
-            .sort("len", descending=False)
-            .with_row_index(name="rank")
-        )
+#         # now rank clusters by size, with largest cluster first
+#         cluster_sizes = (
+#             antigen_df_clust.group_by("cluster")
+#             .len()
+#             .sort("len", descending=False)
+#             .with_row_index(name="rank")
+#         )
 
-        antigen_df_clust = antigen_df_clust.join(
-            cluster_sizes,
-            on="cluster",
-        )
+#         antigen_df_clust = antigen_df_clust.join(
+#             cluster_sizes,
+#             on="cluster",
+#         )
 
-        out_dfs.append(antigen_df_clust)
+#         out_dfs.append(antigen_df_clust)
 
-    # combine all antigen dfs
-    out_df = pl.concat(out_dfs)
-    return out_df
+#     # combine all antigen dfs
+#     out_df = pl.concat(out_dfs)
+#     return out_df
 
 
-def pw_tcrgeom_dist(tcr_df):
+# def pw_tcrgeom_dist(tcr_df):
 
-    tcr_geom_np_1 = cossin_embed(tcr_df.select(TCRDOCK_COLS).to_numpy())
-    tcr_geom_np_2 = tcr_geom_np_1.copy()
+#     tcr_geom_np_1 = cossin_embed(tcr_df.select(TCRDOCK_COLS).to_numpy())
+#     tcr_geom_np_2 = tcr_geom_np_1.copy()
 
-    cognate_geom = cossin_embed(
-        tcr_df.filter(pl.col("cognate")).select(TCRDOCK_COLS).to_numpy()
-    )
+#     cognate_geom = cossin_embed(
+#         tcr_df.filter(pl.col("cognate")).select(TCRDOCK_COLS).to_numpy()
+#     )
 
-    mu = cognate_geom.mean(axis=0)
-    cov = np.cov(cognate_geom, rowvar=False)
-    inv_cov = np.linalg.inv(cov)
+#     mu = cognate_geom.mean(axis=0)
+#     cov = np.cov(cognate_geom, rowvar=False)
+#     inv_cov = np.linalg.inv(cov)
 
-    pw_dist = scipy.spatial.distance.cdist(
-        tcr_geom_np_1, tcr_geom_np_2, metric="mahalanobis", VI=inv_cov
-    )
+#     pw_dist = scipy.spatial.distance.cdist(
+#         tcr_geom_np_1, tcr_geom_np_2, metric="mahalanobis", VI=inv_cov
+#     )
 
-    return pw_dist
+#     return pw_dist
 
 
-def tcrdist_tcrdock_geomdist_corr(df, cognate_only=False):
+# def tcrdist_tcrdock_geomdist_corr(df, cognate_only=False):
 
-    df_by_antigen = df.partition_by(
-        FORMAT_ANTIGEN_COLS,
-    )
+#     df_by_antigen = df.partition_by(
+#         FORMAT_ANTIGEN_COLS,
+#     )
 
-    out_dfs = []
+#     out_dfs = []
 
-    for antigen_df in df_by_antigen:
+#     for antigen_df in df_by_antigen:
 
-        if cognate_only:
-            # only keep cognate TCRs
-            antigen_df = antigen_df.filter(pl.col("cognate"))
+#         if cognate_only:
+#             # only keep cognate TCRs
+#             antigen_df = antigen_df.filter(pl.col("cognate"))
 
-        tcr_df = antigen_df.select(
-            ["cognate"] + FORMAT_TCR_COLS + TCRDOCK_COLS + TCRDIST_COLS
-        )
+#         tcr_df = antigen_df.select(
+#             ["cognate"] + FORMAT_TCR_COLS + TCRDOCK_COLS + TCRDIST_COLS
+#         )
 
-        tcr_with_idx, pw_tcrdist_np = pw_tcrdist(
-            tcr_df,
-        )
+#         tcr_with_idx, pw_tcrdist_np = pw_tcrdist(
+#             tcr_df,
+#         )
 
-        pw_tcrdock_geom_dist_np = pw_tcrgeom_dist(tcr_with_idx)
+#         pw_tcrdock_geom_dist_np = pw_tcrgeom_dist(tcr_with_idx)
 
-        compressed_geom_dist = scipy.spatial.distance.squareform(
-            pw_tcrdock_geom_dist_np
-        )
-        compressed_seq_dist = scipy.spatial.distance.squareform(pw_tcrdist_np)
+#         compressed_geom_dist = scipy.spatial.distance.squareform(
+#             pw_tcrdock_geom_dist_np
+#         )
+#         compressed_seq_dist = scipy.spatial.distance.squareform(pw_tcrdist_np)
 
-        r, p = spearmanr(compressed_geom_dist, compressed_seq_dist)
+#         r, p = spearmanr(compressed_geom_dist, compressed_seq_dist)
 
-        antigen_df_corr = (
-            antigen_df.select(FORMAT_ANTIGEN_COLS)
-            .unique()
-            .with_columns(
-                [
-                    pl.lit(r).alias("r"),
-                    pl.lit(p).alias("p"),
-                ]
-            )
-        )
+#         antigen_df_corr = (
+#             antigen_df.select(FORMAT_ANTIGEN_COLS)
+#             .unique()
+#             .with_columns(
+#                 [
+#                     pl.lit(r).alias("r"),
+#                     pl.lit(p).alias("p"),
+#                 ]
+#             )
+#         )
 
-        out_dfs.append(antigen_df_corr)
+#         out_dfs.append(antigen_df_corr)
 
-    return pl.concat(out_dfs)
+#     return pl.concat(out_dfs)
 
 
-from MDAnalysis.analysis import align, rms
+# from MDAnalysis.analysis import align, rms
 
 
-def _pw_pep_rmsd(j1, j2, inf_path):
-    af3_o_1 = AF3Output(inf_path / j1)
-    af3_o_2 = AF3Output(inf_path / j2)
+# def _pw_pep_rmsd(j1, j2, inf_path):
+#     af3_o_1 = AF3Output(inf_path / j1)
+#     af3_o_2 = AF3Output(inf_path / j2)
 
-    u_1 = af3_o_1.get_mda_universe()
-    u_2 = af3_o_2.get_mda_universe()
+#     u_1 = af3_o_1.get_mda_universe()
+#     u_2 = af3_o_2.get_mda_universe()
 
-    align.alignto(u_1, u_2, select="segid B")
+#     align.alignto(u_1, u_2, select="segid B")
 
-    return rms.rmsd(
-        u_1.select_atoms("segid A and name CA").positions,
-        u_2.select_atoms("segid A and name CA").positions,
-        center=False,
-        superposition=False,
-    )
+#     return rms.rmsd(
+#         u_1.select_atoms("segid A and name CA").positions,
+#         u_2.select_atoms("segid A and name CA").positions,
+#         center=False,
+#         superposition=False,
+#     )
 
 
-def pw_pep_rmsd(tcr_df, inf_path):
+# def pw_pep_rmsd(tcr_df, inf_path):
 
-    job_names = tcr_df.select("job_name").to_series().to_list()
+#     job_names = tcr_df.select("job_name").to_series().to_list()
 
-    pw_matrix = np.array([[(j1, j2) for j2 in job_names] for j1 in job_names])
-    pw_condensed = pw_matrix[np.triu_indices(len(job_names), k=1)].tolist()
-    rmsd_condensed = []
+#     pw_matrix = np.array([[(j1, j2) for j2 in job_names] for j1 in job_names])
+#     pw_condensed = pw_matrix[np.triu_indices(len(job_names), k=1)].tolist()
+#     rmsd_condensed = []
 
-    # for job_1, job_2 in pw_condensed:
-    #     rmsd_condensed.append(_pw_pep_rmsd(job_1, job_2, inf_path))
-    jobs1, jobs2 = zip(*pw_condensed)
-    rmsd_condensed = process_map(
-        _pw_pep_rmsd,
-        jobs1,
-        jobs2,
-        repeat(inf_path),
-        chunksize=15,
-        total=len(jobs1),
-    )
+#     # for job_1, job_2 in pw_condensed:
+#     #     rmsd_condensed.append(_pw_pep_rmsd(job_1, job_2, inf_path))
+#     jobs1, jobs2 = zip(*pw_condensed)
+#     rmsd_condensed = process_map(
+#         _pw_pep_rmsd,
+#         jobs1,
+#         jobs2,
+#         repeat(inf_path),
+#         chunksize=15,
+#         total=len(jobs1),
+#     )
 
-    return np.array(rmsd_condensed)
+#     return np.array(rmsd_condensed)
 
 
-def tcrdist_pep_rmsd_corr(df, inf_path, cognate_only=False):
+# def tcrdist_pep_rmsd_corr(df, inf_path, cognate_only=False):
 
-    df_by_antigen = sorted(
-        df.partition_by(
-            FORMAT_ANTIGEN_COLS,
-        ),
-        key=lambda x: x.height,
-    )
+#     df_by_antigen = sorted(
+#         df.partition_by(
+#             FORMAT_ANTIGEN_COLS,
+#         ),
+#         key=lambda x: x.height,
+#     )
 
-    out_dfs = []
+#     out_dfs = []
 
-    for antigen_df in df_by_antigen:
+#     for antigen_df in df_by_antigen:
 
-        if cognate_only:
-            # only keep cognate TCRs
-            antigen_df = antigen_df.filter(pl.col("cognate"))
+#         if cognate_only:
+#             # only keep cognate TCRs
+#             antigen_df = antigen_df.filter(pl.col("cognate"))
 
-        tcr_df = antigen_df.select(
-            ["job_name", "cognate"]
-            + FORMAT_TCR_COLS
-            + TCRDIST_COLS
-            + FORMAT_ANTIGEN_COLS
-        )
+#         tcr_df = antigen_df.select(
+#             ["job_name", "cognate"]
+#             + FORMAT_TCR_COLS
+#             + TCRDIST_COLS
+#             + FORMAT_ANTIGEN_COLS
+#         )
 
-        tcr_with_idx, pw_tcrdist_np = pw_tcrdist(
-            tcr_df,
-        )
+#         tcr_with_idx, pw_tcrdist_np = pw_tcrdist(
+#             tcr_df,
+#         )
 
-        compressed_rmsd = pw_pep_rmsd(tcr_with_idx, inf_path)
-        compressed_seq_dist = scipy.spatial.distance.squareform(pw_tcrdist_np)
+#         compressed_rmsd = pw_pep_rmsd(tcr_with_idx, inf_path)
+#         compressed_seq_dist = scipy.spatial.distance.squareform(pw_tcrdist_np)
 
-        r, p = spearmanr(compressed_rmsd, compressed_seq_dist)
+#         r, p = spearmanr(compressed_rmsd, compressed_seq_dist)
 
-        print(f"pep {antigen_df.select("peptide")[0].item()}: r: {r}, p: {p}")
+#         print(f"pep {antigen_df.select("peptide")[0].item()}: r: {r}, p: {p}")
 
-        antigen_df_corr = (
-            antigen_df.select(FORMAT_ANTIGEN_COLS)
-            .unique()
-            .with_columns(
-                [
-                    pl.lit(r).alias("r"),
-                    pl.lit(p).alias("p"),
-                ]
-            )
-        )
+#         antigen_df_corr = (
+#             antigen_df.select(FORMAT_ANTIGEN_COLS)
+#             .unique()
+#             .with_columns(
+#                 [
+#                     pl.lit(r).alias("r"),
+#                     pl.lit(p).alias("p"),
+#                 ]
+#             )
+#         )
 
-        out_dfs.append(antigen_df_corr)
+#         out_dfs.append(antigen_df_corr)
 
-    return pl.concat(out_dfs)
+#     return pl.concat(out_dfs)
 
 
 # extract_funcs = [

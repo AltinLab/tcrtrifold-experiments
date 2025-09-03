@@ -1,18 +1,8 @@
 #!/usr/bin/env python3
 import argparse
-import sqlite3
 import json
-import sys
-import os
-import vastdb
-import fcntl
-from contextlib import contextmanager
-
-import time
-
-VAST_S3_ACCESS_KEY_ID = os.getenv("VAST_S3_ACCESS_KEY_ID")
-VAST_S3_SECRET_ACCESS_KEY = os.getenv("VAST_S3_SECRET_ACCESS_KEY")
-MAX_RETRY_ATTEMPT = 10
+from pathlib import Path
+import hashlib
 
 
 def read_fasta_seqs(path):
@@ -45,59 +35,36 @@ def read_fasta_seqs(path):
     return seqs
 
 
-def get_msa(session, protein_type, seq):
-    """
-    Query the specified table for the msa JSON corresponding to the given name.
-    Returns the parsed JSON object if found, otherwise None.
-    """
+def get_msa(msa_cache_dir, protein_type, seq):
 
-    with session.transaction() as tx:
-        bucket = tx.bucket("altindbs3")
-        schema = bucket.schema("alphafold-3")
+    h = hashlib.sha256()
 
-        if protein_type == "tcr":
-            table = schema.table("tcr_chain_msa")
-            predicate = table["tcr_chain_msa_id"] == seq
+    if protein_type == "peptide":
+        fname = seq + ".json"
+    else:
+        h.update(seq.encode("utf-8"))
+        fname = h.hexdigest() + ".json"
 
-        elif protein_type == "mhc":
-            table = schema.table("mhc_chain_msa")
-            predicate = table["mhc_chain_msa_id"] == seq
+    msa_path = msa_cache_dir / protein_type / fname
 
-        elif protein_type == "peptide":
-            table = schema.table("peptide_msa")
-            predicate = table["peptide_msa_id"] == seq
-
-        elif protein_type == "any":
-            table = schema.table("any_msa")
-            predicate = table["any_msa_id"] == seq
-
-        else:
-            raise ValueError
-
-        result = table.select(columns=["msa_path"], predicate=predicate).read_all()
-
-        if result.shape[0] != 1:
-            raise ValueError(
-                f"Error fetching MSA for {protein_type} {seq}. "
-                f"Expected 1 row, got {result.shape[0]}"
-            )
-
-        # if currently being rewritten, wait to avoid
-        # reading incomplete data
-        with open(result["msa_path"][0].as_py(), "r") as f:
+    if msa_path.is_file():
+        with open(msa_path) as f:
             msa = json.load(f)
+    else:
+        raise FileNotFoundError(
+            f"MSA file not found: {msa_path}. Please ensure the MSA cache directory is correct."
+        )
 
-        return msa
+    return msa
 
 
 def main():
     parser = argparse.ArgumentParser(
         description="Compose Alphafold3 input JSON by querying VAST for chain MSA information."
     )
-    parser.add_argument("-jn", "--job_name", type=str, required=True, help="Job name")
+    parser.add_argument("--job_name", type=str, required=True, help="Job name")
     parser.add_argument(
-        "-f",
-        "--fasta_path",
+        "--fasta",
         type=str,
         required=True,
         help="Path to fasta file",
@@ -108,11 +75,22 @@ def main():
         help="Skip MSA for sequence at index i",
     )
     parser.add_argument(
-        "-pt",
-        "--protein_type",
+        "--protein_types",
         type=str,
         required=True,
         help="Comma separated list of protein types",
+    )
+    parser.add_argument(
+        "--msa_cache_dir",
+        type=str,
+        required=True,
+        help="Directory to retrieve MSAs from",
+    )
+    parser.add_argument(
+        "--inf_dir",
+        type=str,
+        required=False,
+        help="Directory to check for existing inference results",
     )
     parser.add_argument(
         "--segids",
@@ -121,12 +99,16 @@ def main():
         help="Comma separated list of segids (chain IDs) the same length as the number of proteins",
     )
     parser.add_argument(
-        "-s",
         "--seeds",
         type=str,
         required=False,
         default="42",
         help="Comma separated list of model seeds",
+    )
+    parser.add_argument(
+        "--check_inf_exists",
+        action="store_true",
+        help="Check if inference already exists in the specified directory",
     )
 
     args = parser.parse_args()
@@ -134,33 +116,32 @@ def main():
     if args.skip_msa:
         skip_msa = set([int(i) for i in args.skip_msa.split(",")])
 
+    print(f"Checking inference directory: {args.inf_dir}")
+
+    if args.check_inf_exists:
+        inf_dir = Path(args.inf_dir)
+
+        if (inf_dir / args.job_name).is_dir():
+
+            print(
+                f"Skipping job {args.job_name} as inference already exists in {inf_dir}."
+            )
+            return
+
+        else:
+            print(f"No existing inference found for job {args.job_name} in {inf_dir}.")
+
     segids = args.segids.split(",") if args.segids else None
 
-    protein_type = list(args.protein_type.split(","))
+    protein_type = list(args.protein_types.split(","))
 
     seeds = [int(seed) for seed in args.seeds.split(",")]
 
-    database = "https://pub-vscratch.vast.rc.tgen.org"
+    msa_cache_dir = Path(args.msa_cache_dir)
 
-    delay = 1
-
-    for attempt in range(1, MAX_RETRY_ATTEMPT + 1):
-        try:
-            session = vastdb.connect(
-                endpoint=database,
-                access=VAST_S3_ACCESS_KEY_ID,
-                secret=VAST_S3_SECRET_ACCESS_KEY,
-                ssl_verify=False,
-            )
-            break
-        except Exception as e:
-            if attempt == MAX_RETRY_ATTEMPT:
-                raise
-            time.sleep(delay)
-            delay = delay * 2
     msas = []
 
-    seqs = read_fasta_seqs(args.fasta_path)
+    seqs = read_fasta_seqs(args.fasta)
 
     if segids is not None and len(segids) != len(seqs):
         raise ValueError
@@ -183,7 +164,7 @@ def main():
                 },
             }
         else:
-            msa = get_msa(session, protein_type[i], seq)
+            msa = get_msa(msa_cache_dir, protein_type[i], seq)
             msa["id"] = segid
             msa = {"protein": msa}
         msas.append(msa)
