@@ -248,13 +248,21 @@ def extract_pmhc_interface_pae(row, inf_parent_dir, inference_type):
     return row
 
 
-def extract_min_tcr_pmhc_pae(row, af3_parent_dir, **kwargs):
-    af3_output = AF3Output(af3_parent_dir / row["job_name"], **kwargs)
-    summ = af3_output.get_summary_metrics(**kwargs)
+def extract_min_tcr_pmhc_pae(row, inf_parent_dir, inference_type):
+    if inference_type == "af3":
+        af3_output = AF3Output(inf_parent_dir / row["job_name"])
+    elif inference_type == "boltz":
+        raise ValueError
+
+    summ = af3_output.get_summary_metrics()
 
     pae_chain = np.array(summ["chain_pair_pae_min"])
-    p_tcr = min(pae_chain[0][3], pae_chain[0][4])
-    tcr_p = min(pae_chain[3][0], pae_chain[4][0])
+    if row["mhc_class"] == "I" and row["mhc_2_seq"] is None:
+        p_tcr = min(pae_chain[0][2], pae_chain[0][3])
+        tcr_p = min(pae_chain[2][0], pae_chain[3][0])
+    else:
+        p_tcr = min(pae_chain[0][3], pae_chain[0][4])
+        tcr_p = min(pae_chain[3][0], pae_chain[4][0])
 
     if row["mhc_class"] == "II":
         # min of both mhc chains
@@ -447,21 +455,40 @@ def extract_num_contacts(row, inf_parent_dir, inference_type):
         mhc_atoms = u_af3.select_atoms("segid B")
 
         raw_helix_ix = raw_helix_indices(mhc_atoms)
+
+        if len(raw_helix_ix) == 0:
+            row["tcr_mhc_contacts"] = 0
+            row["tcr_p_contacts"] = 0
+            row["contact_map"] = None
+            return row
+
         helix_resindices = anneal_helix_indices(raw_helix_ix)
 
         hla_a_res = helix_resindices[0]
         hla_b_res = helix_resindices[1]
-        all_hla_res = u_af3[raw_helix_ix].residues
+        all_hla_res = u_af3.atoms.residues[raw_helix_ix].resindices
 
     else:
-        hla_a_res = anneal_helix_indices(
-            raw_helix_indices(u_af3.select_atoms("segid B"))
-        )[0]
-        hla_b_res = anneal_helix_indices(
-            raw_helix_indices(u_af3.select_atoms("segid C"))
-        )[0]
+        b_raw_helix_ix = raw_helix_indices(u_af3.select_atoms("segid B"))
+
+        if len(b_raw_helix_ix) == 0:
+            row["tcr_mhc_contacts"] = 0
+            row["tcr_p_contacts"] = 0
+            row["contact_map"] = None
+            return row
+
+        c_raw_helix_ix = raw_helix_indices(u_af3.select_atoms("segid C"))
+
+        if len(c_raw_helix_ix) == 0:
+            row["tcr_mhc_contacts"] = 0
+            row["tcr_p_contacts"] = 0
+            row["contact_map"] = None
+            return row
+
+        hla_a_res = anneal_helix_indices(b_raw_helix_ix)[0]
+        hla_b_res = anneal_helix_indices(c_raw_helix_ix)[0]
         raw_helix_ix = raw_helix_indices(u_af3.select_atoms("segid B or segid C"))
-        all_hla_res = u_af3[raw_helix_ix].residues
+        all_hla_res = u_af3.atoms.residues[raw_helix_ix].resindices
 
     # first, extract broad summary contact metrics
     peptide_sel = u_af3.select_atoms("segid A").residues
@@ -471,12 +498,12 @@ def extract_num_contacts(row, inf_parent_dir, inference_type):
     row["tcr_mhc_contacts"] = np.count_nonzero(
         contact_probs[tcr_res][:, all_hla_res] > tcr_mhc_thresh
     )
-    row["tcr_mhc_contacts_arr"] = contact_probs[tcr_res][:, all_hla_res].tolist()
+    # row["tcr_mhc_contacts_arr"] = contact_probs[tcr_res][:, all_hla_res].tolist()
 
     row["tcr_p_contacts"] = np.count_nonzero(
         contact_probs[tcr_res][:, peptide_res_all] > peptide_tcr_thresh
     )
-    row["tcr_p_contacts_arr"] = contact_probs[tcr_res][:, peptide_res_all].tolist()
+    # row["tcr_p_contacts_arr"] = contact_probs[tcr_res][:, peptide_res_all].tolist()
 
     # find best 9-mer
     max_min = 0

@@ -25,6 +25,7 @@ if __name__ == "__main__":
     parser.add_argument("--inference_type")
     parser.add_argument("--inference_dir")
     parser.add_argument("--summary_only", action="store_true", default=False)
+    parser.add_argument("--skip_mhc_helices", action="store_true", default=False)
     parser.add_argument(
         "-o",
         "--output_path",
@@ -88,13 +89,14 @@ if __name__ == "__main__":
             chunksize=15,
         )
 
-        df = split_apply_combine(
-            df,
-            extract_mhc_helix_pLDDT,
-            inf_dir,
-            inference_type,
-            chunksize=15,
-        )
+        if not args.skip_mhc_helices:
+            df = split_apply_combine(
+                df,
+                extract_mhc_helix_pLDDT,
+                inf_dir,
+                inference_type,
+                chunksize=15,
+            )
 
         df = split_apply_combine(
             df,

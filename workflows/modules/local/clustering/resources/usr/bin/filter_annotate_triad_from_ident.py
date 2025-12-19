@@ -176,7 +176,7 @@ if __name__ == "__main__":
 
                 if (
                     v_subset.filter(
-                        pl.col("peptide_ident") >= 80,
+                        pl.col("peptide_ident") >= 77,
                         pl.col("mhc_1_ident") >= 95,
                         pl.col("tcr_1_ident") >= 95,
                         pl.col("tcr_2_ident") >= 95,

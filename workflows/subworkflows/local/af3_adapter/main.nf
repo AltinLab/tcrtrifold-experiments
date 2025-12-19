@@ -194,6 +194,50 @@ workflow UNBATCHED_INFERENCE_FROM_TRIAD_PARQUET {
     new_meta_inf = UNBATCHED_INFERENCE_WORKFLOW.out.new_meta_inf
 }
 
+workflow UNBATCHED_INFERENCE_FROM_TRIAD_PARQUET_NO_MSA {
+
+    take:
+    triad_parquet
+    triad_inf_dir
+    msa_done_key
+
+    main:
+
+    triad_parquet = NOOP_DEP(triad_parquet, msa_done_key)
+    triad_channel = triad_parquet.splitParquet()
+    .map{
+        row -> 
+            if (row["mhc_2_seq"] == null) {
+                tuple(
+                    [
+                        id : row["job_name"],
+                        protein_types : ["peptide", "mhc", "tcr", "tcr"],
+                        segids : ["A", "B", "D", "E"],
+                        skip_msa : [0, 1, 2, 3]
+                    ],
+                    [row["peptide"], row["mhc_1_seq"], row["tcr_1_seq"], row["tcr_2_seq"]],
+                )
+            }
+            else {
+                tuple(
+                    [
+                        id : row["job_name"],
+                        protein_types : ["peptide", "mhc", "mhc", "tcr", "tcr"],
+                        segids : ["A", "B", "C", "D", "E"],
+                        skip_msa : [0, 1, 2, 3, 4]
+                    ],
+                    [row["peptide"], row["mhc_1_seq"], row["mhc_2_seq"], row["tcr_1_seq"], row["tcr_2_seq"]],
+                )
+            }
+    }
+
+    triad_fasta_channel = SEQ_LIST_TO_FASTA(triad_channel)
+    UNBATCHED_INFERENCE_WORKFLOW(triad_fasta_channel, triad_inf_dir)
+
+    emit:
+    new_meta_inf = UNBATCHED_INFERENCE_WORKFLOW.out.new_meta_inf
+}
+
 
 // workflow MSA_FROM_PMHC_PARQUET {
 //     take:
@@ -350,6 +394,51 @@ workflow UNBATCHED_INFERENCE_FROM_PMHC_PARQUET {
                         protein_types : ["peptide", "mhc", "mhc"],
                         segids : ["A", "B", "C"],
                         skip_msa : [0]
+                    ],
+                    [row["peptide"], row["mhc_1_seq"], row["mhc_2_seq"]],
+                )
+            }
+    }
+
+    pmhc_fasta_channel = SEQ_LIST_TO_FASTA(pmhc_channel)
+    UNBATCHED_INFERENCE_WORKFLOW(pmhc_fasta_channel, pmhc_inf_dir)
+
+    emit:
+    new_meta_inf = UNBATCHED_INFERENCE_WORKFLOW.out.new_meta_inf
+}
+
+
+workflow UNBATCHED_INFERENCE_FROM_PMHC_PARQUET_NO_MSA {
+
+    take:
+    pmhc_parquet
+    pmhc_inf_dir
+    msa_done_key
+
+    main:
+
+    pmhc_parquet = NOOP_DEP(pmhc_parquet, msa_done_key)
+    pmhc_channel = pmhc_parquet.splitParquet()
+    .map{
+        row -> 
+            if (row["mhc_2_seq"] == null) {
+                tuple(
+                    [
+                        id : row["job_name"],
+                        protein_types : ["peptide", "mhc"],
+                        segids : ["A", "B"],
+                        skip_msa : [0, 1]
+                    ],
+                    [row["peptide"], row["mhc_1_seq"]],
+                )
+            }
+            else {
+                tuple(
+                    [
+                        id : row["job_name"],
+                        protein_types : ["peptide", "mhc", "mhc"],
+                        segids : ["A", "B", "C"],
+                        skip_msa : [0, 1, 2]
                     ],
                     [row["peptide"], row["mhc_1_seq"], row["mhc_2_seq"]],
                 )

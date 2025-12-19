@@ -2,14 +2,15 @@ name: boltz
 channels:
   - conda-forge
 dependencies:
-  - python
+  - python<3.13
   - pip
 
   # installing with conda fixes: https://github.com/scipy/scipy/issues/16308#issuecomment-1339714289
-  - scipy==1.13.1
+  # - scipy==1.13.1
+  # - cuequivariance
 
   - pip:
-      - boltz
+      - "boltz @ git+https://github.com/jwohlwend/boltz.git@v2.2.1"
       # - torch>=2.2
       # - numpy>=1.26,<2.0
       # - hydra-core==1.3.2

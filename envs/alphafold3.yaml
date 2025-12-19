@@ -1,0 +1,16 @@
+name: alphafold3
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - pip
+  - python
+
+  - zlib
+  - gxx>9.4
+
+  - polars
+
+  - pip:
+    - -r https://raw.githubusercontent.com/google-deepmind/alphafold3/refs/heads/main/dev-requirements.txt
+    - git+https://github.com/google-deepmind/alphafold3.git@main

@@ -23,10 +23,7 @@ include { MSA_FROM_TRIAD_PARQUET;
         NOOP_DEP as DEPEND_VALIDATION_ON_ALL_INFERENCE;
         NOOP_DEP as DEPEND_PMHC_ON_INFERENCE  } from './subworkflows/local/af3_adapter'
 include { BOLTZ_FROM_TRIAD_PARQUET } from './subworkflows/local/boltz'
-include { EXTRACT_TRIAD_SUMMARY_METRICS;
-        EXTRACT_TRIAD_SUMMARY_METRICS as EXTRACT_TRIAD_SUMMARY_METRICS_BOLTZ;
-        EXTRACT_TRIAD_CONF_FEAT;
-        TCRDOCK_GEOM_FROM_PDB; 
+include { TCRDOCK_GEOM_FROM_PDB; 
         TCRDOCK_GEOM_FROM_INFERENCE as TCRDOCK_GEOM_FROM_AF3_INFERENCE;
         TCRDOCK_GEOM_FROM_INFERENCE as TCRDOCK_GEOM_FROM_BOLTZ_INFERENCE;
         TCRDOCK_GEOM_FROM_INFERENCE as TCRDOCK_GEOM_VALIDATION;
@@ -74,10 +71,6 @@ workflow {
     COMPUTE_RMSD_BOLTZ(triad_cleaned, triad_tcrdock_pdb, triad_tcrdock_boltz, cleaned_pdbfiles, triad_boltz_dir, Channel.value("boltz"))
     triad_rmsd_boltz = COMPUTE_RMSD_BOLTZ.out.triad
 
-    triad_all_conf = EXTRACT_TRIAD_SUMMARY_METRICS(triad_cleaned_af3, triad_inf_dir, Channel.value("af3"))
-
-    triad_all_conf_boltz = EXTRACT_TRIAD_SUMMARY_METRICS_BOLTZ(triad_cleaned_boltz, triad_boltz_dir, Channel.value("boltz"))
-
     // VALIDATION SET
 
     VALIDATION_STANDARDIZE(triad_cleaned)
@@ -96,8 +89,6 @@ workflow {
     UNBATCHED_INFERENCE_VALIDATION(triad_validation_negatives, triad_inf_dir, triad_all_meta_inf.toList())
     triad_validation_meta_inf = UNBATCHED_INFERENCE_VALIDATION.out.new_meta_inf
     triad_validation_negatives = DEPEND_TRIAD_VALIDATION_ON_INFERENCE(triad_validation_negatives, triad_validation_meta_inf.toList())
-
-    triad_conf_validation = EXTRACT_TRIAD_CONF_FEAT(triad_validation_negatives, triad_inf_dir, Channel.value("af3"))
 
     triad_tcrdock_validation = TCRDOCK_GEOM_VALIDATION(triad_validation_negatives, triad_inf_dir, Channel.value("af3"))
 
@@ -121,16 +112,12 @@ workflow {
     triad_rmsd_af3 = triad_rmsd_af3
     triad_rmsd_boltz = triad_rmsd_boltz
 
-    triad_all_conf = triad_all_conf
-    triad_all_conf_boltz = triad_all_conf_boltz
-
     triad_validation_cleaned = triad_validation_cleaned
     triad_validation_excluded_triad = triad_validation_excluded_triad
     triad_validation_negatives = triad_validation_negatives
     triad_validation_meta_inf = triad_validation_meta_inf
     pmhc_validation_meta_inf = pmhc_validation_meta_inf
 
-    triad_conf_validation = triad_conf_validation
     triad_tcrdock_validation = triad_tcrdock_validation
 
 }
@@ -172,13 +159,6 @@ output {
     triad_rmsd_boltz {
         path "triad/staged"
     }
-
-    triad_all_conf {
-        path "triad/staged"
-    }
-    triad_all_conf_boltz {
-        path "triad/staged"
-    }
     
     triad_validation_cleaned {
         path "triad/staged"
@@ -194,9 +174,6 @@ output {
     }
     pmhc_validation_meta_inf {
         path "pmhc/inference"
-    }
-    triad_conf_validation {
-        path "triad/staged"
     }
     triad_tcrdock_validation {
         path "triad/staged"

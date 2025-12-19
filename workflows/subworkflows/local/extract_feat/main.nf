@@ -169,8 +169,7 @@ process PARQUET_TO_FASTA {
 
 
 process CLUSTER_FASTA {
-    label "process_local"
-    conda "envs/mmseqs2.yaml"
+    label "mmseqs_heavy"
 
     input:
         tuple val(meta), path(fasta)

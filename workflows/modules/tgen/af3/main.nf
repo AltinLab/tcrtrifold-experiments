@@ -5,11 +5,11 @@ process SEQ_LIST_TO_FASTA {
       tuple val(meta), val(seq_list)
 
     output:
-      tuple val(meta), path("${meta.id}.fasta")
+      tuple val(meta), path("af3-single-chain-msa.fasta")
 
     script:
     """
-    filename="${meta.id}.fasta"
+    filename="af3-single-chain-msa.fasta"
     : > "\$filename"
 
     i=1
@@ -70,9 +70,8 @@ process SEQ_LIST_TO_FASTA {
 //  }
 
 process FILT_FORMAT_MSA {
-    label "process_local"
+    label "tcrtrifold_local"
     tag "${meta.protein_type}-${meta.id}"
-    conda "${moduleDir}/environment.yaml"
 
     input:
     tuple val(meta), path(fasta)
@@ -112,7 +111,7 @@ process RUN_MSA {
 
     script:
     """
-    /app/alphafold/run_alphafold.py \\
+    python /app/alphafold/run_alphafold.py \\
         --json_path=$json \\
         --model_dir=${params.af3_model_dir} \\
         --db_dir=${params.af3_db_dir} \\
@@ -156,8 +155,7 @@ process RUN_MSA {
 
 
 process COMPOSE_INFERENCE_JSON {
-    label "process_local"
-    conda "${moduleDir}/environment.yaml"
+    label "tcrtrifold_local"
     // errorStrategy { sleep(Math.pow(2, task.attempt) * 200 as long); return 'retry' }
     // maxRetries 5
     tag "${meta.id}"
@@ -177,6 +175,7 @@ process COMPOSE_INFERENCE_JSON {
     def check_inf_exists = params.check_inf_exists ? "--check_inf_exists" : ''
     def skip_msa_arg = meta.containsKey("skip_msa") ? "--skip_msa ${meta.skip_msa.join(',')}" : ''
     """
+    
     
     compose_inference_JSON.py \\
         --job_name "${meta.id}" \\
@@ -244,11 +243,10 @@ process INFERENCE {
 }
 
 process CLEAN_INFERENCE_DIR {
-    label "process_local"
+    label "tcrtrifold_local"
     tag "clean_inference"
     errorStrategy { sleep(Math.pow(2, task.attempt) * 200 as long); return 'retry' }
     maxRetries 5
-    conda "${moduleDir}/environment.yaml"
     
     // publishDir "${params.outdir}", mode: 'copy'
 

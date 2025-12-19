@@ -1,8 +1,4 @@
-from .utils import (
-    FORMAT_TCR_COLS,
-    TCRDIST_COLS,
-    FORMAT_ANTIGEN_COLS,
-)
+from .utils import FORMAT_TCR_COLS, TCRDIST_COLS, FORMAT_ANTIGEN_COLS, FORMAT_COLS
 from tcrdist.repertoire import TCRrep
 import polars as pl
 import scipy
