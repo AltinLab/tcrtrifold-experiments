@@ -123,4 +123,6 @@ tmp
 
 # data
 data/*
+!data/**/*.parquet
+!data/**/*.tsv
 logs
