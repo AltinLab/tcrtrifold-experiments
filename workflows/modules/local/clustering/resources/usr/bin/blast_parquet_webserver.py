@@ -29,7 +29,7 @@ def blast_rcsb(seq_id, seq):
         "return_type": "entry",
     }
 
-    r = requests.post(RCSB_API, json=json, timeout=360)
+    r = requests.post(RCSB_API, json=json, timeout=10000)
     r.raise_for_status()
 
     if r.status_code == 204:
@@ -44,6 +44,7 @@ def blast_rcsb(seq_id, seq):
         .with_columns(pl.lit(seq_id).alias("qseqid"))
         .rename({"identifier": "pdb"})
     )
+
 
 # deprecated: NCBI blast against PDB misses obvious hits
 def blastp_pdb_df(seq, evalue=1e-3, max_hits=1000, poll_s=3):

@@ -20,7 +20,6 @@
 
 process SPLIT_TRIAD_INTO_CHAINS {
   label "tcrtrifold_local"
-  publishDir "/tgen_labs/altin/alphafold3/workspace/tcrtrifold-experiments/tmp/DEBU_PDB"
   
   input:
   path triad_parquet
@@ -51,7 +50,6 @@ process SPLIT_TRIAD_INTO_CHAINS {
 
 process PARQUET_TO_FASTA {
   label "tcrtrifold_local"
-  publishDir "/tgen_labs/altin/alphafold3/workspace/tcrtrifold-experiments/tmp/DEBUG"
 
   input:
       path parquet
@@ -74,8 +72,7 @@ process PARQUET_TO_FASTA {
 }
 
 process MMSEQS_QUERY_TARGET_IDENT {
-  conda "${moduleDir}/mmseqs2.yaml"
-  publishDir "/tgen_labs/altin/alphafold3/workspace/tcrtrifold-experiments/tmp/DEBUG"
+  label "mmseqs_heavy"
 
   input:
   path query_fasta
@@ -95,8 +92,7 @@ process MMSEQS_QUERY_TARGET_IDENT {
 }
 
 process MMSEQS_QUERY_TARGET_IDENT_SHORT {
-  conda "${moduleDir}/mmseqs2.yaml"
-  publishDir "/tgen_labs/altin/alphafold3/workspace/tcrtrifold-experiments/tmp/DEBUG"
+  label "mmseqs_heavy"
 
   input:
   path query_fasta
@@ -154,7 +150,6 @@ process FILTER_ANNOTATE_TRIAD_FROM_IDENT {
 
 process FILTER_ANNOTATE_TRIAD_FROM_PDB {
   label "tcrtrifold_local"
-  publishDir "/tgen_labs/altin/alphafold3/workspace/tcrtrifold-experiments/tmp/DEBUG_PDB"
 
   input:
   path query_triad_pq
@@ -188,9 +183,37 @@ process FILTER_ANNOTATE_TRIAD_FROM_PDB {
   """
 }
 
+process ANNOTATE_TRIAD_FROM_PDB {
+  label "tcrtrifold_local"
+
+  input:
+  path query_triad_pq
+  path blast_mhc_1_tsv
+  path blast_mhc_2_tsv
+  path blast_tcr_1_tsv
+  path blast_tcr_2_tsv
+
+  output:
+  path "*annotated*.parquet", emit: annot_triad_parquet
+
+  script:
+  """
+
+
+  filter_annotate_triad_from_pdb.py \\
+    --query_triad_parquet ${query_triad_pq} \\
+    --blast_mhc_1_tsv ${blast_mhc_1_tsv} \\
+    --blast_mhc_2_tsv ${blast_mhc_2_tsv} \\
+    --blast_tcr_1_tsv ${blast_tcr_1_tsv} \\
+    --blast_tcr_2_tsv ${blast_tcr_2_tsv} \\
+    --output_annotated_triad_parquet ${query_triad_pq.getSimpleName()}.annotated.parquet \\
+    --exclude_af3_training_only \\
+    --annotate_only
+  """
+}
+
 process BLAST_PARQUET_WEBSERVER {
   label "tcrtrifold_local"
-  publishDir "/tgen_labs/altin/alphafold3/workspace/tcrtrifold-experiments/tmp/DEBUG_PDB"
 
   input:
   path seq_pq

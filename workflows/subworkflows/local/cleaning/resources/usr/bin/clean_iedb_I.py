@@ -125,7 +125,8 @@ if __name__ == "__main__":
     )
 
     iedb_human_I = iedb_human_I.group_by(FORMAT_COLS + TCRDIST_COLS).agg(
-        [pl.col("references").flatten(), pl.col("receptor_id").flatten()]
+        # make list of lists
+        [pl.col("references"), pl.col("receptor_id")]
     )
 
     iedb_human_I.select(FORMAT_COLS + addtl_cols).write_parquet(

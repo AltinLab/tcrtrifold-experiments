@@ -78,7 +78,7 @@ if __name__ == "__main__":
 
         with open(args.job_name + ".json", "w") as f:
             json_dict = {
-                "name": "af3-single-chain-msa",
+                "name": args.job_name,
                 "modelSeeds": [42],
                 "sequences": [{"protein": {"id": "A", "sequence": seq}}],
                 "dialect": "alphafold3",

@@ -63,9 +63,9 @@ workflow {
     pmhc_unwin_meta_inf = UNBATCHED_INFERENCE_FROM_UNWIN_PMHC_PARQUET.out.new_meta_inf
     pmhc_unwin = DEPEND_PMHC_ON_UNWIN_INFERENCE(pmhc_cleaned, pmhc_unwin_meta_inf.toList())
 
-    // CONFIDENCE FEATURES
-    triad_unwin_conf = EXTRACT_UNWIN_TRIAD_CONF_FEAT(triad_unwin_neg, triad_inf_dir, Channel.value("af3"))
-    triad_unwin_tcrdock = TCRDOCK_GEOM_FROM_INFERENCE(triad_unwin_neg, triad_inf_dir, Channel.value("af3"))
+    // // CONFIDENCE FEATURES
+    // triad_unwin_conf = EXTRACT_UNWIN_TRIAD_CONF_FEAT(triad_unwin_neg, triad_inf_dir, Channel.value("af3"))
+    // triad_unwin_tcrdock = TCRDOCK_GEOM_FROM_INFERENCE(triad_unwin_neg, triad_inf_dir, Channel.value("af3"))
 
     // WINDOWED SET
 
@@ -84,10 +84,10 @@ workflow {
     pmhc_meta_inf = UNBATCHED_INFERENCE_FROM_PMHC_PARQUET.out.new_meta_inf
     pmhc_win_neg = DEPEND_PMHC_ON_INFERENCE(pmhc_neg_w, pmhc_meta_inf.toList())
 
-    // CONFIDENCE FEATURES
-    triad_conf = EXTRACT_TRIAD_CONF_FEAT(triad_win_neg, triad_inf_dir, Channel.value("af3"))
+    // // CONFIDENCE FEATURES
+    // triad_conf = EXTRACT_TRIAD_CONF_FEAT(triad_win_neg, triad_inf_dir, Channel.value("af3"))
 
-    pmhc_conf = EXTRACT_PMHC_CONF_FEAT(pmhc_win_neg, pmhc_inf_dir, Channel.value("af3"))
+    // pmhc_conf = EXTRACT_PMHC_CONF_FEAT(pmhc_win_neg, pmhc_inf_dir, Channel.value("af3"))
 
 
     publish:
@@ -99,8 +99,8 @@ workflow {
     triad_negatives = triad_negatives
     triad_unwin_meta_inf = triad_unwin_meta_inf
     pmhc_unwin_meta_inf = pmhc_unwin_meta_inf
-    triad_unwin_conf = triad_unwin_conf
-    triad_unwin_tcrdock = triad_unwin_tcrdock
+    // triad_unwin_conf = triad_unwin_conf
+    // triad_unwin_tcrdock = triad_unwin_tcrdock
     
 
     // windowed
@@ -109,8 +109,8 @@ workflow {
     incomplete_negative_log = GEN_NEGATIVES.out.discard_df
     triad_meta_inf = triad_meta_inf
     pmhc_meta_inf = pmhc_meta_inf
-    triad_conf = triad_conf
-    pmhc_conf = pmhc_conf
+    // triad_conf = triad_conf
+    // pmhc_conf = pmhc_conf
     
 }
 
@@ -138,9 +138,9 @@ output {
     pmhc_unwin_meta_inf {
         path "pmhc/inference"
     }
-    triad_unwin_conf {
-        path "triad/staged"
-    }
+    // triad_unwin_conf {
+    //     path "triad/staged"
+    // }
     triad_unwin_tcrdock {
         path "triad/staged"
     }
@@ -158,10 +158,10 @@ output {
     pmhc_meta_inf {
         path "pmhc/inference"
     }
-    triad_conf {
-        path "triad/staged"
-    }
-    pmhc_conf {
-        path "pmhc/staged"
-    }
+    // triad_conf {
+    //     path "triad/staged"
+    // }
+    // pmhc_conf {
+    //     path "pmhc/staged"
+    // }
 }

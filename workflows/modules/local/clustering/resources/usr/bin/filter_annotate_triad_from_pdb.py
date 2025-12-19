@@ -52,7 +52,7 @@ def get_chains_from_pdb(pdb_id):
     r = requests.post(
         "https://data.rcsb.org/graphql",
         json={"query": PDB_QUERY, "variables": {"id": pdb_id}},
-        timeout=120,
+        timeout=400,
     )
     r.raise_for_status()
     raw_pdb_dat = r.json()["data"]["entry"]
@@ -92,6 +92,7 @@ if __name__ == "__main__":
         type=str,
     )
     parser.add_argument("--exclude_af3_training_only", action="store_true")
+    parser.add_argument("--annotate_only", action="store_true")
     parser.add_argument(
         "--output_annotated_triad_parquet",
         type=str,
@@ -107,7 +108,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     query_triad = pl.read_parquet(args.query_triad_parquet)
-    curr_pmhc = pl.read_parquet(args.pmhc_parquet)
+
+    if not args.annotate_only:
+        curr_pmhc = pl.read_parquet(args.pmhc_parquet)
 
     mhc_1_ident = pl.read_csv(args.blast_mhc_1_tsv, separator="\t")
 
@@ -239,9 +242,14 @@ if __name__ == "__main__":
     triad_in_pdb = pl.DataFrame(
         {
             "job_name": strikeout_jn,
+            "triad_in_pdb": True,
             "triad_matches": matched_triad,
         },
-        schema={"job_name": pl.String, "triad_matches": pl.List(pl.String)},
+        schema={
+            "job_name": pl.String,
+            "triad_in_pdb": pl.Boolean,
+            "triad_matches": pl.List(pl.String),
+        },
     ).unique()
 
     annot_triad = (
@@ -263,40 +271,55 @@ if __name__ == "__main__":
         )
     )
 
-    exclude = query_triad.join(triad_in_pdb, on="job_name", how="inner").select(
-        pl.exclude(
-            [
-                "peptide_hash",
-                "mhc_1_hash",
-                "mhc_2_hash",
-                "tcr_1_hash",
-                "tcr_2_hash",
-            ]
-        )
-    )
+    if not args.annotate_only:
 
-    annot_triad = annot_triad.join(
-        exclude.select("job_name").unique(), on="job_name", how="anti"
-    )
-
-    remaining_antigen = curr_pmhc.join(
-        generate_job_name(
-            annot_triad.select(FORMAT_ANTIGEN_COLS).unique(),
-            ["peptide", "mhc_1_seq", "mhc_2_seq"],
-            name="job_name",
+        exclude = query_triad.join(triad_in_pdb, on="job_name", how="inner").select(
+            pl.exclude(
+                [
+                    "peptide_hash",
+                    "mhc_1_hash",
+                    "mhc_2_hash",
+                    "tcr_1_hash",
+                    "tcr_2_hash",
+                ]
+            )
         )
-        .select("job_name")
-        .unique(),
-        on="job_name",
-    )
+
+        annot_triad = annot_triad.join(
+            exclude.select("job_name").unique(), on="job_name", how="anti"
+        )
+
+        exclude.write_parquet(
+            args.output_excluded_triad_parquet,
+        )
+        remaining_antigen = curr_pmhc.join(
+            generate_job_name(
+                annot_triad.select(FORMAT_ANTIGEN_COLS).unique(),
+                ["peptide", "mhc_1_seq", "mhc_2_seq"],
+                name="job_name",
+            )
+            .select("job_name")
+            .unique(),
+            on="job_name",
+        )
+        remaining_antigen.write_parquet(
+            args.output_remaining_pmhc_parquet,
+        )
+
+    else:
+        annot_triad = annot_triad.join(
+            triad_in_pdb, on="job_name", how="left"
+        ).with_columns(
+            pl.when(pl.col("triad_in_pdb").is_not_null())
+            .then(pl.lit(True))
+            .otherwise(pl.lit(False))
+            .alias("triad_in_pdb"),
+            pl.when(pl.col("triad_in_pdb").is_not_null())
+            .then(pl.col("triad_matches"))
+            .otherwise(pl.lit(None))
+            .alias("triad_matches"),
+        )
 
     annot_triad.write_parquet(
         args.output_annotated_triad_parquet,
-    )
-
-    exclude.write_parquet(
-        args.output_excluded_triad_parquet,
-    )
-    remaining_antigen.write_parquet(
-        args.output_remaining_pmhc_parquet,
     )

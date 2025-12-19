@@ -1,9 +1,0 @@
-channels:
-  - conda-forge
-dependencies:
-  - python
-  - pip
-
-
-  - pip:
-    - git+https://github.com/ljwoods2/mdaf3.git@main

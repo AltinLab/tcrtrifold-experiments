@@ -50,6 +50,12 @@ def get_msa(msa_cache_dir, protein_type, seq):
     if msa_path.is_file():
         with open(msa_path) as f:
             msa = json.load(f)
+
+            if "sequences" in msa:
+                return msa["sequences"][0]["protein"]
+
+            else:
+                return msa
     else:
         raise FileNotFoundError(
             f"MSA file not found: {msa_path}. Please ensure the MSA cache directory is correct."

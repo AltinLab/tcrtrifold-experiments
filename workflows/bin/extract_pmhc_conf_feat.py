@@ -14,6 +14,9 @@ from mdaf3.FeatureExtraction import split_apply_combine
 import polars as pl
 from pathlib import Path
 import argparse
+import warnings
+
+warnings.filterwarnings("ignore")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
